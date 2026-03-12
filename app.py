@@ -6,94 +6,127 @@ import core_client as core
 from core_client import CricketAPIError
 
 app = FastAPI(
-title="Cricket Score API",
-version="1.0.0",
-description="Cricbuzz JSON + Cricbuzz HTML + ESPN HTML with caching and retries."
+    title="Cricket Score API",
+    version="1.0.0",
+    description="Cricbuzz JSON + Cricbuzz HTML + ESPN HTML with caching, retries, and fallbacks."
 )
 
+# Enable CORS
 app.add_middleware(
-CORSMiddleware,
-allow_origins=["*"],
-allow_methods=["*"],
-allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
+# -----------------------------
+# Root + Health
+# -----------------------------
 
 @app.get("/")
 def root():
-return {"message": "Cricket Score API is running"}
+    return {"message": "Cricket Score API is running"}
+
 
 @app.get("/health")
 def health():
-return {"status": "ok"}
+    return {"status": "ok"}
+
+
+# -----------------------------
+# Match Lists
+# -----------------------------
 
 @app.get("/live")
-def live(team: Optional[str] = None):
-try:
-data = core.get_live_matches()
-if team:
-data = {"matches": core.filter_matches_by_team(data, team), "source": data.get("source")}
-return data
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def live_matches(team: Optional[str] = Query(default=None, description="Filter by team name")):
+    try:
+        data = core.get_live_matches()
+        if team:
+            data = {
+                "matches": core.filter_matches_by_team(data, team),
+                "source": data.get("source")
+            }
+        return data
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/matches/recent")
-def recent(team: Optional[str] = None):
-try:
-data = core.get_recent_matches()
-if team:
-data = {"matches": core.filter_matches_by_team(data, team), "source": data.get("source")}
-return data
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def recent_matches(team: Optional[str] = None):
+    try:
+        data = core.get_recent_matches()
+        if team:
+            data = {
+                "matches": core.filter_matches_by_team(data, team),
+                "source": data.get("source")
+            }
+        return data
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/matches/upcoming")
-def upcoming(team: Optional[str] = None):
-try:
-data = core.get_upcoming_matches()
-if team:
-data = {"matches": core.filter_matches_by_team(data, team), "source": data.get("source")}
-return data
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def upcoming_matches(team: Optional[str] = None):
+    try:
+        data = core.get_upcoming_matches()
+        if team:
+            data = {
+                "matches": core.filter_matches_by_team(data, team),
+                "source": data.get("source")
+            }
+        return data
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+# -----------------------------
+# Match Details
+# -----------------------------
 
 @app.get("/match/{match_id}")
-def match(match_id: str):
-try:
-return core.get_match(match_id)
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def match_info(match_id: str):
+    try:
+        return core.get_match(match_id)
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/match/{match_id}/scorecard")
-def scorecard(match_id: str):
-try:
-return core.get_scorecard(match_id)
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def match_scorecard(match_id: str):
+    try:
+        return core.get_scorecard(match_id)
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/match/{match_id}/commentary")
-def commentary(match_id: str):
-try:
-return core.get_commentary(match_id)
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def match_commentary(match_id: str):
+    try:
+        return core.get_commentary(match_id)
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/match/{match_id}/commentary/historical")
-def commentary_historical(match_id: str):
-try:
-return core.get_commentary(match_id)
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def match_commentary_historical(match_id: str):
+    try:
+        return core.get_commentary(match_id)
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/match/{match_id}/timeline")
-def timeline(match_id: str):
-try:
-return core.get_timeline(match_id)
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def match_timeline(match_id: str):
+    try:
+        return core.get_timeline(match_id)
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
 
 @app.get("/match/{match_id}/stats")
-def stats(match_id: str):
-try:
-return core.get_stats(match_id)
-except CricketAPIError as e:
-raise HTTPException(502, str(e))
+def match_stats(match_id: str):
+    try:
+        return core.get_stats(match_id)
+    except CricketAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
