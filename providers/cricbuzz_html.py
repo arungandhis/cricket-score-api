@@ -18,49 +18,39 @@ def _soup(url: str) -> BeautifulSoup:
     print(f"[CB_HTML] GET {url}")
     resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
     print(f"[CB_HTML] status={resp.status_code}")
-
     if resp.status_code != 200:
         raise CricbuzzHTMLError(f"Cricbuzz HTML error {resp.status_code}")
-
     return BeautifulSoup(resp.text, "html.parser")
 
 
 # ---------------------------------------------------------
-# LIVE MATCHES (NEW 2024–2026 SELECTORS)
+# LIVE MATCHES — TEMP DEBUG VERSION
 # ---------------------------------------------------------
 def live_matches() -> Dict[str, Any]:
     url = f"{BASE_URL}/cricket-match/live-scores"
-    soup = _soup(url)
+    print(f"[CB_HTML] LIVE URL {url}")
 
-    matches = []
+    resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    print("[CB_HTML] live status:", resp.status_code)
 
-    # NEW selector: each match card is an <a> with class cb-lv-scrs-well
-    cards = soup.select("a.cb-lv-scrs-well")
-    print(f"[CB_HTML] live cards found={len(cards)}")
+    # 🔍 KEY DEBUG: dump first 1000 chars of HTML so we can see real structure
+    snippet = resp.text[:1000]
+    print("[CB_HTML] live first 1000 chars:\n", snippet)
 
-    for card in cards:
-        title = card.select_one(".cb-lv-scr-mtch-hdr")
-        status = card.select_one(".cb-text-live, .cb-text-complete, .cb-text-preview")
+    # Still parse it so function shape stays the same
+    soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Teams are in the first two .cb-ovr-flo elements
-        team_elems = card.select(".cb-ovr-flo")
-        teams = [t.get_text(strip=True) for t in team_elems[:2]]
+    matches: List[Dict[str, Any]] = []
 
-        # Score is usually the 3rd .cb-ovr-flo
-        score = team_elems[2].get_text(strip=True) if len(team_elems) > 2 else ""
-
-        matches.append({
-            "title": title.get_text(strip=True) if title else "",
-            "status": status.get_text(strip=True) if status else "",
-            "teams": teams,
-            "score": score,
-        })
+    # Keep a very generic selector for now; we’ll refine after seeing HTML
+    cards = soup.select("a.cb-lv-scrs-well, div.cb-mtch-lst, div.cb-col-100")
+    print("[CB_HTML] live cards found (generic selector):", len(cards))
 
     return {"matches": matches, "source": "cricbuzz_html"}
 
 
 # ---------------------------------------------------------
-# RECENT MATCHES (NEW SELECTORS)
+# RECENT MATCHES (leave as‑is for now)
 # ---------------------------------------------------------
 def recent_matches() -> Dict[str, Any]:
     url = f"{BASE_URL}/cricket-match/live-scores/recent-matches"
@@ -89,7 +79,7 @@ def recent_matches() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------
-# UPCOMING MATCHES (NEW SELECTORS)
+# UPCOMING MATCHES (leave as‑is for now)
 # ---------------------------------------------------------
 def upcoming_matches() -> Dict[str, Any]:
     url = f"{BASE_URL}/cricket-match/live-scores/upcoming-matches"
@@ -116,27 +106,23 @@ def upcoming_matches() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------
-# MATCH DETAILS (NEW SELECTORS)
+# MATCH DETAILS (leave as‑is for now)
 # ---------------------------------------------------------
 def match(match_id: str) -> Dict[str, Any]:
     url = f"{BASE_URL}/live-cricket-scorecard/{match_id}"
     soup = _soup(url)
 
-    # Title
     title_el = soup.select_one("h1.cb-nav-hdr")
     title = title_el.get_text(strip=True) if title_el else "Unknown Match"
 
-    # Status
     status_el = soup.select_one(
         ".cb-text-complete, .cb-text-stump, .cb-text-inprogress, .cb-text-live"
     )
     status = status_el.get_text(strip=True) if status_el else "Status unavailable"
 
-    # Score (team 1 + team 2)
     score_blocks = soup.select(".cb-col.cb-col-100.cb-ltst-wgt-hdr")
     score_text = " | ".join([b.get_text(strip=True) for b in score_blocks])
 
-    # Commentary (NEW selector)
     commentary_items = [
         c.get_text(strip=True)
         for c in soup.select(".cb-com-ln")[:100]
