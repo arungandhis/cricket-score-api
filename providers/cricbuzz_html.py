@@ -8,30 +8,28 @@ TIMEOUT = 10
 
 
 class CricbuzzHTMLError(Exception):
-    """Raised when Cricbuzz HTML scraping fails."""
     pass
 
 
-# ---------------------------------------------------------
-# Internal helper to fetch and parse HTML
-# ---------------------------------------------------------
 def _soup(url: str) -> BeautifulSoup:
+    print(f"[CB_HTML] GET {url}")
     resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    print(f"[CB_HTML] status={resp.status_code}")
     if resp.status_code != 200:
         raise CricbuzzHTMLError(f"Cricbuzz HTML error {resp.status_code}")
     return BeautifulSoup(resp.text, "html.parser")
 
 
-# ---------------------------------------------------------
-# Live matches (HTML fallback)
-# ---------------------------------------------------------
 def live_matches() -> Dict[str, Any]:
     url = f"{BASE_URL}/cricket-match/live-scores"
     soup = _soup(url)
 
     matches: List[Dict[str, Any]] = []
 
-    for card in soup.select(".cb-mtch-lst"):
+    cards = soup.select(".cb-mtch-lst")
+    print(f"[CB_HTML] live match cards found={len(cards)}")
+
+    for card in cards:
         title_el = card.select_one(".cb-lv-scr-mtch-hdr")
         status_el = card.select_one(".cb-text-live, .cb-text-complete, .cb-text-preview")
 
@@ -52,39 +50,31 @@ def live_matches() -> Dict[str, Any]:
             }
         )
 
+    print(f"[CB_HTML] live_matches parsed={len(matches)}")
     return {"matches": matches, "source": "cricbuzz_html"}
 
 
-# ---------------------------------------------------------
-# Match details (HTML fallback)
-# ---------------------------------------------------------
 def match(match_id: str) -> Dict[str, Any]:
-    """
-    Supports both live and archived matches using:
-    https://www.cricbuzz.com/live-cricket-scorecard/{match_id}
-    """
     url = f"{BASE_URL}/live-cricket-scorecard/{match_id}"
     soup = _soup(url)
 
-    # Title
     title_el = soup.select_one("h1.cb-nav-hdr")
     title = title_el.get_text(strip=True) if title_el else "Unknown Match"
 
-    # Status
     status_el = soup.select_one(
         ".cb-text-complete, .cb-text-stump, .cb-text-inprogress, .cb-text-live"
     )
     status = status_el.get_text(strip=True) if status_el else "Status unavailable"
 
-    # Score
     score_el = soup.select_one(".cb-min-bat-rw")
     score = score_el.get_text(strip=True) if score_el else "Score unavailable"
 
-    # Commentary (up to 100 lines)
     commentary_list = [
         item.get_text(strip=True)
         for item in soup.select(".cb-col.cb-col-90.cb-com-ln")[:100]
     ]
+
+    print(f"[CB_HTML] match {match_id}: commentary_lines={len(commentary_list)}")
 
     return {
         "title": title,
