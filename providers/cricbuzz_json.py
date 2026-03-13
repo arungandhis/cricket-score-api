@@ -15,57 +15,50 @@ TIMEOUT = 10
 
 
 class CricbuzzJSONError(Exception):
-    """Raised when Cricbuzz JSON API fails."""
     pass
 
 
 def _get_json(path: str) -> Dict[str, Any]:
-    """
-    Internal helper to fetch JSON from Cricbuzz.
-    Raises CricbuzzJSONError on any failure.
-    """
     url = f"{BASE_URL}{path}"
+    print(f"[CB_JSON] GET {url}")
     resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    print(f"[CB_JSON] status={resp.status_code}, content-type={resp.headers.get('Content-Type')}")
 
-    # Handle HTTP errors
     if resp.status_code == 404:
         raise CricbuzzJSONError("Cricbuzz JSON 404 Not Found")
     if resp.status_code >= 500:
         raise CricbuzzJSONError(f"Cricbuzz JSON server error {resp.status_code}")
 
-    # Validate content type
     content_type = resp.headers.get("Content-Type", "")
     if "application/json" not in content_type:
-        # Sometimes Cricbuzz returns JSON with text/plain
         try:
-            return resp.json()
+            data = resp.json()
+            print("[CB_JSON] parsed JSON from non-JSON content-type")
+            return data
         except json.JSONDecodeError:
-            raise CricbuzzJSONError(
-                f"Unexpected non‑JSON response (Content-Type={content_type})"
-            )
+            print("[CB_JSON] JSON decode error")
+            raise CricbuzzJSONError(f"Unexpected non-JSON response (Content-Type={content_type})")
 
-    # Parse JSON normally
     return resp.json()
 
 
-# -----------------------------
-# PUBLIC API FUNCTIONS
-# -----------------------------
-
 def live_matches() -> Dict[str, Any]:
     data = _get_json("/api/matches/live")
+    print(f"[CB_JSON] live_matches count={len(data.get('matches', []))}")
     data["source"] = "cricbuzz_json"
     return data
 
 
 def recent_matches() -> Dict[str, Any]:
     data = _get_json("/api/matches/recent")
+    print(f"[CB_JSON] recent_matches count={len(data.get('matches', []))}")
     data["source"] = "cricbuzz_json"
     return data
 
 
 def upcoming_matches() -> Dict[str, Any]:
     data = _get_json("/api/matches/upcoming")
+    print(f"[CB_JSON] upcoming_matches count={len(data.get('matches', []))}")
     data["source"] = "cricbuzz_json"
     return data
 
