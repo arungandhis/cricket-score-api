@@ -49,24 +49,29 @@ def _cached(key: str, ttl: int, fn, *args, **kwargs) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------
-# Fallback chain: JSON → Cricbuzz HTML → ESPN HTML
+# Fallback helper: treat empty matches as failure
 # ---------------------------------------------------------
-def _fallback_chain(key: str, ttl: int, json_fn, html_fn, espn_fn, *args) -> Dict[str, Any]:
+def _fallback_matches(key: str, ttl: int, json_fn, html_fn, espn_fn):
     # 1. Cricbuzz JSON
     try:
-        return _cached(f"{key}:cb_json", ttl, json_fn, *args)
+        data = _cached(f"{key}:cb_json", ttl, json_fn)
+        if data.get("matches"):
+            return data
     except Exception:
         pass
 
     # 2. Cricbuzz HTML
     try:
-        return _cached(f"{key}:cb_html", ttl, html_fn, *args)
+        data = _cached(f"{key}:cb_html", ttl, html_fn)
+        if data.get("matches"):
+            return data
     except Exception:
         pass
 
     # 3. ESPN HTML
     try:
-        return _cached(f"{key}:espn_html", ttl, espn_fn, *args)
+        data = _cached(f"{key}:espn_html", ttl, espn_fn)
+        return data
     except Exception as e:
         raise CricketAPIError(f"All providers failed: {e}")
 
@@ -76,7 +81,7 @@ def _fallback_chain(key: str, ttl: int, json_fn, html_fn, espn_fn, *args) -> Dic
 # ---------------------------------------------------------
 
 def get_live_matches() -> Dict[str, Any]:
-    return _fallback_chain(
+    return _fallback_matches(
         "live_matches",
         ttl=5,
         json_fn=cbj.live_matches,
@@ -86,28 +91,41 @@ def get_live_matches() -> Dict[str, Any]:
 
 
 def get_recent_matches() -> Dict[str, Any]:
-    try:
-        return _cached("recent_matches:cb_json", 30, cbj.recent_matches)
-    except Exception:
-        return _cached("recent_matches:cb_html", 30, cbh.live_matches)
+    return _fallback_matches(
+        "recent_matches",
+        ttl=30,
+        json_fn=cbj.recent_matches,
+        html_fn=cbh.live_matches,
+        espn_fn=espn.live_matches,
+    )
 
 
 def get_upcoming_matches() -> Dict[str, Any]:
-    try:
-        return _cached("upcoming_matches:cb_json", 60, cbj.upcoming_matches)
-    except Exception:
-        return _cached("upcoming_matches:cb_html", 60, cbh.live_matches)
+    return _fallback_matches(
+        "upcoming_matches",
+        ttl=60,
+        json_fn=cbj.upcoming_matches,
+        html_fn=cbh.live_matches,
+        espn_fn=espn.live_matches,
+    )
 
 
 def get_match(match_id: str) -> Dict[str, Any]:
-    return _fallback_chain(
-        f"match:{match_id}",
-        ttl=5,
-        json_fn=cbj.match,
-        html_fn=cbh.match,
-        espn_fn=espn.match,
-        *[match_id],
-    )
+    # JSON → HTML → ESPN fallback
+    try:
+        return _cached(f"match:{match_id}:cb_json", 5, cbj.match, match_id)
+    except Exception:
+        pass
+
+    try:
+        return _cached(f"match:{match_id}:cb_html", 5, cbh.match, match_id)
+    except Exception:
+        pass
+
+    try:
+        return _cached(f"match:{match_id}:espn_html", 5, espn.match, match_id)
+    except Exception as e:
+        raise CricketAPIError(f"All providers failed: {e}")
 
 
 def get_scorecard(match_id: str) -> Dict[str, Any]:
@@ -118,7 +136,6 @@ def get_scorecard(match_id: str) -> Dict[str, Any]:
 
 
 def get_commentary(match_id: str) -> Dict[str, Any]:
-    # JSON commentary → HTML commentary → ESPN commentary
     try:
         return _cached(f"commentary:{match_id}:cb_json", 3, cbj.commentary, match_id)
     except Exception:
