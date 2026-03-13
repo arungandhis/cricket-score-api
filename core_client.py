@@ -12,16 +12,15 @@ class CricketAPIError(Exception):
     pass
 
 
-# Retry settings
 MAX_RETRIES = 3
-BACKOFF = 1.5  # exponential backoff multiplier
+BACKOFF = 1.5
 
 
 # ---------------------------------------------------------
 # Retry wrapper
 # ---------------------------------------------------------
 def _with_retries(fn, *args, **kwargs) -> Dict[str, Any]:
-    last_exc: Exception | None = None
+    last_exc = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -49,7 +48,7 @@ def _cached(key: str, ttl: int, fn, *args, **kwargs) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------
-# Fallback helper: treat empty matches as failure
+# Fallback for match lists (JSON → HTML → ESPN)
 # ---------------------------------------------------------
 def _fallback_matches(key: str, ttl: int, json_fn, html_fn, espn_fn):
     # 1. Cricbuzz JSON
@@ -68,10 +67,9 @@ def _fallback_matches(key: str, ttl: int, json_fn, html_fn, espn_fn):
     except Exception:
         pass
 
-    # 3. ESPN HTML
+    # 3. ESPN (always empty for lists)
     try:
-        data = _cached(f"{key}:espn_html", ttl, espn_fn)
-        return data
+        return _cached(f"{key}:espn_html", ttl, espn_fn)
     except Exception as e:
         raise CricketAPIError(f"All providers failed: {e}")
 
@@ -111,19 +109,30 @@ def get_upcoming_matches() -> Dict[str, Any]:
 
 
 def get_match(match_id: str) -> Dict[str, Any]:
-    # JSON → HTML → ESPN fallback
+    # 1. Cricbuzz JSON
     try:
         return _cached(f"match:{match_id}:cb_json", 5, cbj.match, match_id)
     except Exception:
         pass
 
+    # 2. Cricbuzz HTML
     try:
-        return _cached(f"match:{match_id}:cb_html", 5, cbh.match, match_id)
+        html_data = _cached(f"match:{match_id}:cb_html", 5, cbh.match, match_id)
+        team1 = html_data.get("teams", ["", ""])[0] if "teams" in html_data else ""
+        team2 = html_data.get("teams", ["", ""])[1] if "teams" in html_data else ""
     except Exception:
-        pass
+        team1 = team2 = ""
 
+    # 3. ESPN JSON fallback
     try:
-        return _cached(f"match:{match_id}:espn_html", 5, espn.match, match_id)
+        return _cached(
+            f"match:{match_id}:espn_html",
+            5,
+            espn.match,
+            match_id,
+            team1,
+            team2,
+        )
     except Exception as e:
         raise CricketAPIError(f"All providers failed: {e}")
 
@@ -154,33 +163,3 @@ def get_stats(match_id: str) -> Dict[str, Any]:
         return _cached(f"stats:{match_id}:cb_json", 30, cbj.stats, match_id)
     except Exception:
         return get_match(match_id)
-
-
-# ---------------------------------------------------------
-# Team filtering helper
-# ---------------------------------------------------------
-def filter_matches_by_team(matches_json: Dict[str, Any], team_name: str):
-    team_name = team_name.lower()
-    filtered = []
-
-    for match in matches_json.get("matches", []):
-        teams = []
-
-        if isinstance(match, dict):
-            t1 = match.get("team1") or match.get("team1_name") or {}
-            t2 = match.get("team2") or match.get("team2_name") or {}
-
-            if isinstance(t1, dict):
-                teams.append(t1.get("name", "") or t1.get("sName", ""))
-            else:
-                teams.append(str(t1))
-
-            if isinstance(t2, dict):
-                teams.append(t2.get("name", "") or t2.get("sName", ""))
-            else:
-                teams.append(str(t2))
-
-        if any(team_name in (t or "").lower() for t in teams):
-            filtered.append(match)
-
-    return filtered
