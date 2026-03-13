@@ -11,7 +11,6 @@ app = FastAPI(
     description="Cricbuzz JSON + Cricbuzz HTML + ESPN HTML with caching, retries, and fallbacks."
 )
 
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,10 +18,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# -----------------------------
-# Root + Health
-# -----------------------------
 
 @app.get("/")
 def root():
@@ -33,10 +28,6 @@ def root():
 def health():
     return {"status": "ok"}
 
-
-# -----------------------------
-# Match Lists
-# -----------------------------
 
 @app.get("/live")
 def live_matches(team: Optional[str] = Query(default=None, description="Filter by team name")):
@@ -79,10 +70,6 @@ def upcoming_matches(team: Optional[str] = None):
     except CricketAPIError as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-
-# -----------------------------
-# Match Details
-# -----------------------------
 
 @app.get("/match/{match_id}")
 def match_info(match_id: str):
@@ -130,3 +117,31 @@ def match_stats(match_id: str):
         return core.get_stats(match_id)
     except CricketAPIError as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+# ---------- DEBUG ENDPOINTS ----------
+
+@app.get("/debug/live-providers")
+def debug_live_providers():
+    from providers import cricbuzz_json as cbj
+    from providers import cricbuzz_html as cbh
+    from providers import espn_html as espn
+
+    out = {}
+
+    try:
+        out["cb_json"] = cbj.live_matches()
+    except Exception as e:
+        out["cb_json_error"] = str(e)
+
+    try:
+        out["cb_html"] = cbh.live_matches()
+    except Exception as e:
+        out["cb_html_error"] = str(e)
+
+    try:
+        out["espn_html"] = espn.live_matches()
+    except Exception as e:
+        out["espn_html_error"] = str(e)
+
+    return out
