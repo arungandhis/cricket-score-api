@@ -1,85 +1,54 @@
-from typing import Any, Dict, List
+from typing import Any, Dict
 import requests
-from bs4 import BeautifulSoup
 
-BASE_URL = "https://www.espncricinfo.com"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0 Safari/537.36"
+    ),
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.espncricinfo.com/",
+}
 TIMEOUT = 10
 
 
 class ESPNHTMLError(Exception):
-    """Raised when ESPN HTML scraping fails."""
     pass
 
 
-# ---------------------------------------------------------
-# Internal helper to fetch and parse HTML
-# ---------------------------------------------------------
-def _soup(url: str) -> BeautifulSoup:
-    resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
-    if resp.status_code != 200:
-        raise ESPNHTMLError(f"ESPN HTML error {resp.status_code}")
-    return BeautifulSoup(resp.text, "html.parser")
-
-
-# ---------------------------------------------------------
-# Live matches (HTML fallback)
-# ---------------------------------------------------------
 def live_matches() -> Dict[str, Any]:
-    url = f"{BASE_URL}/live-cricket-score"
-    soup = _soup(url)
-
-    matches: List[Dict[str, Any]] = []
-
-    for card in soup.select(".ds-px-4.ds-py-3"):
-        title_el = card.select_one(".ds-text-tight-m")
-        status_el = card.select_one(".ds-text-tight-s")
-        score_el = card.select_one(".ds-text-compact-s")
-
-        matches.append(
-            {
-                "title": title_el.get_text(strip=True) if title_el else "",
-                "status": status_el.get_text(strip=True) if status_el else "",
-                "score": score_el.get_text(strip=True) if score_el else "",
-            }
-        )
-
-    return {"matches": matches, "source": "espn_html"}
+    # ESPN does not have a stable HTML live list, so return empty
+    return {"matches": [], "source": "espn_html"}
 
 
-# ---------------------------------------------------------
-# Match details + commentary (HTML fallback)
-# ---------------------------------------------------------
 def match(match_id: str) -> Dict[str, Any]:
     """
-    Supports historical and live commentary pages:
-    https://www.espncricinfo.com/match/{match_id}/commentary
+    Uses ESPN's stable JSON feed:
+    https://www.espncricinfo.com/matches/engine/match/{match_id}.json
     """
-    url = f"{BASE_URL}/match/{match_id}/commentary"
-    soup = _soup(url)
+    url = f"https://www.espncricinfo.com/matches/engine/match/{match_id}.json"
+    resp = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
 
-    # Title
-    title_el = soup.select_one("h1.ds-text-tight-l")
-    title = title_el.get_text(strip=True) if title_el else "Unknown Match"
+    if resp.status_code != 200:
+        raise ESPNHTMLError(f"ESPN JSON error {resp.status_code}")
 
-    # Status
-    status_el = soup.select_one(".ds-text-tight-m.ds-font-regular")
-    status = status_el.get_text(strip=True) if status_el else "Status unavailable"
+    data = resp.json()
 
-    # Score
-    score_el = soup.select_one(".ds-text-compact-m.ds-text-typo")
-    score = score_el.get_text(strip=True) if score_el else "Score unavailable"
-
-    # Commentary (up to 100 lines)
-    commentary_list = [
-        item.get_text(strip=True)
-        for item in soup.select(".ds-text-tight-s.ds-font-regular")[:100]
-    ]
+    # Extract commentary (up to 100 items)
+    commentary_items = []
+    if "comms" in data:
+        for item in data["comms"].get("comms", [])[:100]:
+            text = item.get("ball", {}).get("commentary", "")
+            if text:
+                commentary_items.append(text)
 
     return {
-        "title": title,
-        "status": status,
-        "score": score,
-        "commentary": commentary_list,
+        "title": data.get("match", {}).get("team1_name", "") + " vs " +
+                 data.get("match", {}).get("team2_name", ""),
+        "status": data.get("live", {}).get("status", "Unavailable"),
+        "score": data.get("live", {}).get("innings", ""),
+        "commentary": commentary_items,
         "source": "espn_html",
     }
