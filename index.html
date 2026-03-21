@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Realistic Commentary</title>
+  <title>Cricket Live Studio – Realistic Audio Sync</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -11,7 +11,6 @@
     .commentary-text { font-family: 'JetBrains Mono', monospace; }
     canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; }
     .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; }
-    select { background: #1f2937; color: white; border-radius: 0.5rem; padding: 0.25rem 0.5rem; }
   </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
@@ -19,7 +18,6 @@
   <div id="error-message" style="display: none;"></div>
 
   <script>
-    // Global error handler
     window.onerror = function(msg, url, line, col, error) {
       var errDiv = document.getElementById('error-message');
       errDiv.style.display = 'block';
@@ -42,10 +40,8 @@
   <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
 
   <script type="text/babel">
-    // --------------------------------------------------------------
-    // Enhanced realistic commentary generation
-    // --------------------------------------------------------------
-    const generateRealisticCommentary = (delivery, isFirstBall = false) => {
+    // Enhanced realistic commentary
+    const generateRealisticCommentary = (delivery) => {
       const runs = delivery.runs;
       const isWicket = delivery.wicket;
       const wicketKind = delivery.wicketKind;
@@ -53,7 +49,6 @@
       const bowler = delivery.bowler;
       const extras = delivery.extras || 0;
 
-      // Pre‑defined phrases for excitement
       const boundaryPhrases = [
         "Cracked away to the boundary!",
         "That's a glorious shot!",
@@ -80,43 +75,30 @@
         let phrase = wicketPhrases[wicketKind] || "Wicket! The batsman has to go!";
         return `${striker} is out! ${phrase}`;
       }
-
       if (extras > 0) {
-        if (delivery.extras && delivery.extras.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
-        if (delivery.extras && delivery.extras.byes) return `Byes! ${extras} runs. The keeper missed it.`;
-        if (delivery.extras && delivery.extras.legbyes) return `Leg‑byes! ${extras} runs.`;
+        if (delivery.extrasObj?.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
+        if (delivery.extrasObj?.byes) return `Byes! ${extras} runs. The keeper missed it.`;
+        if (delivery.extrasObj?.legbyes) return `Leg‑byes! ${extras} runs.`;
         return `${extras} extras.`;
       }
-
       if (runs === 0) {
         const dotPhrases = ["Dot ball! Good bowling.", "No run. Excellent fielding.", "Beaten! That's a beauty."];
         return dotPhrases[Math.floor(Math.random() * dotPhrases.length)];
       }
-      if (runs === 1) {
-        return "Quick single! They scamper through.";
-      }
-      if (runs === 2) {
-        return "Two runs. Good running between the wickets.";
-      }
-      if (runs === 4) {
-        const idx = Math.floor(Math.random() * boundaryPhrases.length);
-        return boundaryPhrases[idx];
-      }
-      if (runs === 6) {
-        const idx = Math.floor(Math.random() * sixPhrases.length);
-        return sixPhrases[idx];
-      }
+      if (runs === 1) return "Quick single! They scamper through.";
+      if (runs === 2) return "Two runs. Good running between the wickets.";
+      if (runs === 4) return boundaryPhrases[Math.floor(Math.random() * boundaryPhrases.length)];
+      if (runs === 6) return sixPhrases[Math.floor(Math.random() * sixPhrases.length)];
       return `${runs} runs taken.`;
     };
 
-    // Voice selection
+    // Voice selection (keeps best voice)
     let selectedVoice = null;
     const getBestVoice = () => {
       return new Promise((resolve) => {
         const synth = window.speechSynthesis;
         const loadVoices = () => {
           const voices = synth.getVoices();
-          // Try to find Indian English, then any English with good quality
           let best = voices.find(v => v.lang === 'en-IN' && v.name.includes('Rishi')) ||
                      voices.find(v => v.lang === 'en-IN') ||
                      voices.find(v => v.lang === 'en-GB' && v.name.includes('Samantha')) ||
@@ -130,11 +112,17 @@
       });
     };
 
-    // Speech function with realistic voice
+    // Speech function with on-end callback
     let currentUtterance = null;
-    const speakCommentary = async (text, excitement = false) => {
-      if (!window.speechSynthesis) return;
-      if (currentUtterance) window.speechSynthesis.cancel();
+    const speakWithCallback = async (text, excitement, onEnd) => {
+      if (!window.speechSynthesis) {
+        if (onEnd) onEnd();
+        return;
+      }
+      if (currentUtterance) {
+        window.speechSynthesis.cancel();
+        currentUtterance = null;
+      }
       if (!selectedVoice) {
         selectedVoice = await getBestVoice();
       }
@@ -143,13 +131,19 @@
       utterance.rate = excitement ? 1.0 : 0.9;
       utterance.pitch = excitement ? 1.1 : 0.95;
       utterance.volume = 1;
+      utterance.onend = () => {
+        currentUtterance = null;
+        if (onEnd) onEnd();
+      };
+      utterance.onerror = () => {
+        currentUtterance = null;
+        if (onEnd) onEnd();
+      };
       currentUtterance = utterance;
       window.speechSynthesis.speak(utterance);
     };
 
-    // --------------------------------------------------------------
     // Parser for Cricsheet JSON (same as before)
-    // --------------------------------------------------------------
     const parseCricsheetJSON = (json) => {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length === 0) {
         throw new Error("Invalid Cricsheet format: missing 'info' or 'innings' array");
@@ -172,17 +166,16 @@
           var wicketKind = null;
           var wicketPlayer = null;
           var extras = (delivery.runs && delivery.runs.extras) || 0;
-          if (isWicket) {
-            var w = delivery.wickets[0];
-            wicketKind = w.kind;
-            wicketPlayer = w.player_out;
-          }
-          // Store extras info for commentary
           var extrasObj = {};
           if (delivery.extras) {
             if (delivery.extras.wides) extrasObj.wides = delivery.extras.wides;
             if (delivery.extras.byes) extrasObj.byes = delivery.extras.byes;
             if (delivery.extras.legbyes) extrasObj.legbyes = delivery.extras.legbyes;
+          }
+          if (isWicket) {
+            var w = delivery.wickets[0];
+            wicketKind = w.kind;
+            wicketPlayer = w.player_out;
           }
           deliveriesFlat.push({
             over: overNum,
@@ -275,6 +268,7 @@
       var [speed, setSpeed] = React.useState(1);
       var [muteAudio, setMuteAudio] = React.useState(false);
       var [commentaryLog, setCommentaryLog] = React.useState([]);
+      var [isSpeaking, setIsSpeaking] = React.useState(false);
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -289,7 +283,6 @@
 
       var currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalBalls) ? deliveries[currentBallIdx] : null;
 
-      // Enhanced add commentary with realistic text
       var addCommentaryEntry = function(delivery, idx) {
         var commentaryText = generateRealisticCommentary(delivery);
         var ballDesc = "Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + commentaryText + (delivery.wicket ? " 🚨 WICKET!" : "");
@@ -297,15 +290,16 @@
           var newEntry = { id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket || false };
           return [newEntry].concat(prev).slice(0, 50);
         });
-        // Return commentary text for audio
         return commentaryText;
       };
 
-      var playNextBall = React.useCallback(function() {
+      // Core function: advance to next ball, play audio, and set speaking flag
+      var advanceToNextBall = React.useCallback(function() {
         if (currentBallIdx + 1 >= totalBalls) {
+          // Match finished
           setIsPlaying(false);
           if (!muteAudio && window.speechSynthesis) {
-            speakCommentary("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.", false);
+            speakWithCallback("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.", false, function() {});
           }
           return;
         }
@@ -313,23 +307,46 @@
         var nextDelivery = deliveries[nextIdx];
         setCurrentBallIdx(nextIdx);
         var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
-        // Speak with excitement for boundaries and wickets
-        var excitement = (nextDelivery.runs === 4 || nextDelivery.runs === 6 || nextDelivery.wicket);
         if (!muteAudio) {
           var intro = nextDelivery.striker + " facing " + nextDelivery.bowler + ". ";
-          speakCommentary(intro + commentaryText, excitement);
+          var fullText = intro + commentaryText;
+          var excitement = (nextDelivery.runs === 4 || nextDelivery.runs === 6 || nextDelivery.wicket);
+          setIsSpeaking(true);
+          speakWithCallback(fullText, excitement, function() {
+            setIsSpeaking(false);
+          });
         }
       }, [currentBallIdx, deliveries, totalBalls, matchState.totalRuns, matchState.wickets, muteAudio]);
 
+      // Manual next ball (cancel any ongoing speech and move immediately)
+      var manualNextBall = function() {
+        if (isSpeaking && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+          setIsSpeaking(false);
+        }
+        if (currentBallIdx + 1 < totalBalls) {
+          advanceToNextBall();
+        }
+      };
+
+      // Auto‑play interval: calls advanceToNextBall when not speaking and auto‑play on
       React.useEffect(function() {
         if (!isPlaying) return;
-        var intervalTime = 1800 / speed;
-        var timer = setInterval(playNextBall, intervalTime);
+        var intervalTime = 100 / speed; // very short interval – checks frequently
+        var timer = setInterval(function() {
+          if (!isSpeaking && currentBallIdx + 1 < totalBalls) {
+            advanceToNextBall();
+          }
+        }, intervalTime);
         return function() { clearInterval(timer); };
-      }, [isPlaying, playNextBall, speed]);
+      }, [isPlaying, speed, isSpeaking, currentBallIdx, advanceToNextBall, totalBalls]);
 
       var resetSimulation = function() {
         setIsPlaying(false);
+        if (isSpeaking && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+          setIsSpeaking(false);
+        }
         setCurrentBallIdx(-1);
         setCommentaryLog([]);
         setVideoBlobUrl(null);
@@ -341,19 +358,27 @@
 
       var startMatch = function() {
         if (currentBallIdx === -1) {
-          setCurrentBallIdx(0);
+          // Start from first ball
           var firstDelivery = deliveries[0];
+          setCurrentBallIdx(0);
           var commentary = addCommentaryEntry(firstDelivery, 0);
           if (!muteAudio) {
-            speakCommentary(firstDelivery.striker + " facing " + firstDelivery.bowler + ". " + commentary, false);
+            var intro = firstDelivery.striker + " facing " + firstDelivery.bowler + ". ";
+            var excitement = (firstDelivery.runs === 4 || firstDelivery.runs === 6 || firstDelivery.wicket);
+            setIsSpeaking(true);
+            speakWithCallback(intro + commentary, excitement, function() {
+              setIsSpeaking(false);
+            });
           }
         }
         setIsPlaying(true);
       };
 
-      var pauseMatch = function() { setIsPlaying(false); };
+      var pauseMatch = function() {
+        setIsPlaying(false);
+      };
 
-      // Canvas drawing unchanged...
+      // Canvas drawing (unchanged)
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -481,7 +506,7 @@
             React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
               !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: currentBallIdx+1 >= totalBalls, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
                 : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
-              React.createElement('button', { onClick: playNextBall, disabled: isPlaying || currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
+              React.createElement('button', { onClick: manualNextBall, disabled: currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
               React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
               React.createElement('div', { className: "flex items-center gap-2 ml-auto" },
                 React.createElement('span', { className: "text-xs" }, "Speed:"),
