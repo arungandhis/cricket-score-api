@@ -43,7 +43,7 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
-    // Enhanced realistic commentary
+    // Realistic commentary generator (unchanged)
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
       const runs = delivery.runs;
@@ -104,7 +104,7 @@
       return `${runs} runs taken.`;
     };
 
-    // Voice selection
+    // Voice selection (unchanged)
     let selectedVoice = null;
     const getBestVoice = () => {
       return new Promise((resolve) => {
@@ -166,7 +166,7 @@
       }
     };
 
-    // Parser with full stats accumulation
+    // Parser that also extracts maximum overs
     const parseCricsheetJSON = (json) => {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
         throw new Error("Invalid Cricsheet format: need two innings");
@@ -176,7 +176,8 @@
         venue: json.info.venue || "Unknown Venue",
         date: (json.info.dates && json.info.dates[0]) || "Unknown Date",
         winner: (json.info.outcome && json.info.outcome.winner) || "N/A",
-        toss: json.info.toss ? `${json.info.toss.winner} won the toss and chose to ${json.info.toss.decision}` : "No toss info"
+        toss: json.info.toss ? `${json.info.toss.winner} won the toss and chose to ${json.info.toss.decision}` : "No toss info",
+        maxOvers: json.info.overs || 20
       };
       const inningsData = [];
       for (let innIdx = 0; innIdx < json.innings.length; innIdx++) {
@@ -213,7 +214,8 @@
             if (!battingStats[striker]) {
               battingStats[striker] = { runs: 0, balls: 0, fours: 0, sixes: 0 };
             }
-            if (!isWicket || wicketPlayer !== striker) {
+            // Only count legal balls (no wides, no‑balls) for batting balls faced
+            if (!extrasObj.wides && !extrasObj.noballs) {
               battingStats[striker].balls++;
             }
             battingStats[striker].runs += runs;
@@ -223,10 +225,10 @@
             // Bowling stats
             const bowler = delivery.bowler;
             if (!bowlingStats[bowler]) {
-              bowlingStats[bowler] = { overs: 0, runs: 0, wickets: 0, balls: 0 };
+              bowlingStats[bowler] = { overs: 0, runs: 0, wickets: 0, legalBalls: 0 };
             }
             if (!extrasObj.wides) {
-              bowlingStats[bowler].balls++;
+              bowlingStats[bowler].legalBalls++;
             }
             bowlingStats[bowler].runs += runs;
             if (isWicket) {
@@ -249,12 +251,12 @@
           }
         }
 
-        // Convert bowling balls to overs
+        // Convert bowling legal balls to overs
         for (let bowler in bowlingStats) {
-          let balls = bowlingStats[bowler].balls;
+          let balls = bowlingStats[bowler].legalBalls;
           let overs = Math.floor(balls / 6) + (balls % 6) / 10;
           bowlingStats[bowler].overs = overs.toFixed(1);
-          delete bowlingStats[bowler].balls;
+          delete bowlingStats[bowler].legalBalls;
         }
 
         inningsData.push({ team, deliveries: deliveriesFlat, battingStats, bowlingStats });
@@ -268,15 +270,16 @@
     };
 
     const computeStateUpTo = function(deliveries, maxIndex) {
-      var totalRuns = 0, wickets = 0, ballsCount = 0;
+      var totalRuns = 0, wickets = 0, legalBalls = 0;
       for (var i = 0; i <= maxIndex; i++) {
         var d = deliveries[i];
         totalRuns += d.runs;
         if (d.wicket) wickets++;
-        ballsCount++;
+        // Count legal balls (not a wide)
+        if (!d.extrasObj.wides) legalBalls++;
       }
-      var oversDecimal = Math.floor(ballsCount / 6) + (ballsCount % 6) / 10;
-      return { totalRuns, wickets, ballsCount, overs: oversDecimal.toFixed(1) };
+      var oversDecimal = Math.floor(legalBalls / 6) + (legalBalls % 6) / 10;
+      return { totalRuns, wickets, legalBalls, overs: oversDecimal.toFixed(1) };
     };
 
     const App = () => {
@@ -318,7 +321,7 @@
                   React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "2", d: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" })
                 ),
                 React.createElement('p', { className: "mb-2 text-sm text-gray-300" }, React.createElement('span', { className: "font-semibold" }, "Click to upload"), " Cricsheet JSON"),
-                React.createElement('p', { className: "text-xs text-gray-400" }, "Full match (both innings) supported with detailed scoreboard!")
+                React.createElement('p', { className: "text-xs text-gray-400" }, "Full match (both innings) – now ends correctly after max overs")
               ),
               React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: handleFileUpload })
             ),
@@ -396,6 +399,7 @@
 
     const MatchSimulator = function(props) {
       const { inningsData, matchInfo, target: initialTarget } = props.matchData;
+      const maxOvers = matchInfo.maxOvers;
       const [currentInningsIdx, setCurrentInningsIdx] = React.useState(0);
       const [currentBallIdx, setCurrentBallIdx] = React.useState(-1);
       const [isPlaying, setIsPlaying] = React.useState(false);
@@ -414,15 +418,17 @@
 
       const currentInnings = inningsData[currentInningsIdx];
       const deliveries = currentInnings.deliveries;
-      const totalBalls = deliveries.length;
+      const totalDeliveries = deliveries.length;
 
       const matchState = React.useMemo(function() {
-        if (currentBallIdx < 0) return { totalRuns: 0, wickets: 0, ballsCount: 0, overs: "0.0" };
-        const state = computeStateUpTo(deliveries, currentBallIdx);
-        return { ...state, target: currentInningsIdx === 1 ? target : null };
-      }, [currentBallIdx, deliveries, currentInningsIdx, target]);
+        if (currentBallIdx < 0) return { totalRuns: 0, wickets: 0, legalBalls: 0, overs: "0.0" };
+        return computeStateUpTo(deliveries, currentBallIdx);
+      }, [currentBallIdx, deliveries]);
 
-      const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalBalls) ? deliveries[currentBallIdx] : null;
+      const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
+
+      // Check if innings is finished (max overs reached)
+      const isInningsFinished = matchState.legalBalls >= maxOvers * 6;
 
       React.useEffect(() => {
         if (currentInningsIdx === 1 && firstInningsStats === null) {
@@ -448,10 +454,9 @@
       };
 
       const advanceToNextBall = React.useCallback(function() {
-        // If we're already at or beyond the last ball, do nothing
-        if (currentBallIdx + 1 >= totalBalls) {
-          // End of this innings
-          if (currentInningsIdx === 0 && currentBallIdx !== -1) {
+        // If innings finished (max overs reached), end it
+        if (isInningsFinished) {
+          if (currentInningsIdx === 0) {
             // First innings finished
             setIsPlaying(false);
             const firstTotal = matchState.totalRuns;
@@ -469,7 +474,7 @@
             if (!muteAudio) {
               speakWithCallback(`End of first innings. ${currentInnings.team} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${firstTotal+1} runs to win. Press start to begin the chase.`, 0, function() {});
             }
-          } else if (currentInningsIdx === 1) {
+          } else {
             // Second innings finished
             setIsPlaying(false);
             if (!muteAudio) {
@@ -480,48 +485,51 @@
           return;
         }
 
-        var nextIdx = currentBallIdx + 1;
-        var nextDelivery = deliveries[nextIdx];
-        setCurrentBallIdx(nextIdx);
-        var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
-        if (!muteAudio) {
-          var intro = nextDelivery.striker + " facing " + nextDelivery.bowler + ". ";
-          var fullText = intro + commentaryText;
-          var excitementLevel = 0;
-          if (nextDelivery.runs === 4 || nextDelivery.runs === 6) excitementLevel = 1;
-          if (nextDelivery.wicket) excitementLevel = 2;
-          setIsSpeaking(true);
-          speakWithCallback(fullText, excitementLevel, function() { setIsSpeaking(false); });
+        // If we still have balls in the JSON, move to next ball
+        if (currentBallIdx + 1 < totalDeliveries) {
+          var nextIdx = currentBallIdx + 1;
+          var nextDelivery = deliveries[nextIdx];
+          setCurrentBallIdx(nextIdx);
+          var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
+          if (!muteAudio) {
+            var intro = nextDelivery.striker + " facing " + nextDelivery.bowler + ". ";
+            var fullText = intro + commentaryText;
+            var excitementLevel = 0;
+            if (nextDelivery.runs === 4 || nextDelivery.runs === 6) excitementLevel = 1;
+            if (nextDelivery.wicket) excitementLevel = 2;
+            setIsSpeaking(true);
+            speakWithCallback(fullText, excitementLevel, function() { setIsSpeaking(false); });
+          }
         }
-      }, [currentBallIdx, deliveries, totalBalls, currentInningsIdx, matchState.totalRuns, matchState.wickets, muteAudio, target, inningsData, currentInnings]);
+      }, [currentBallIdx, deliveries, totalDeliveries, currentInningsIdx, matchState, isInningsFinished, target, inningsData, currentInnings, muteAudio]);
 
       var manualNextBall = function() {
         if (isSpeaking && window.speechSynthesis) {
           try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
-        // Only advance if not at end of innings
-        if (currentBallIdx + 1 < totalBalls) {
+        // Only advance if not already finished
+        if (!isInningsFinished && currentBallIdx + 1 < totalDeliveries) {
           advanceToNextBall();
         }
       };
 
+      // Auto-play interval
       React.useEffect(function() {
         if (!isPlaying) return;
-        // Don't auto‑play if the match is over (second innings finished)
-        if (currentInningsIdx === 1 && currentBallIdx + 1 >= totalBalls) {
+        // Don't auto-play if innings finished
+        if (isInningsFinished) {
           setIsPlaying(false);
           return;
         }
         var intervalTime = 100 / speed;
         var timer = setInterval(function() {
-          // Only auto‑advance if not speaking and we haven't reached the end of the innings
-          if (!isSpeaking && currentBallIdx + 1 < totalBalls) {
+          if (!isSpeaking && !isInningsFinished && currentBallIdx + 1 < totalDeliveries) {
             advanceToNextBall();
           }
         }, intervalTime);
         return function() { clearInterval(timer); };
-      }, [isPlaying, speed, isSpeaking, currentBallIdx, advanceToNextBall, totalBalls, currentInningsIdx]);
+      }, [isPlaying, speed, isSpeaking, currentBallIdx, advanceToNextBall, totalDeliveries, isInningsFinished]);
 
       var resetSimulation = function() {
         setIsPlaying(false);
@@ -542,7 +550,8 @@
       };
 
       var startMatch = function() {
-        // If we are at the start of an innings (currentBallIdx === -1), play the first ball
+        // If innings is finished, do nothing (should be handled by button disabled)
+        if (isInningsFinished) return;
         if (currentBallIdx === -1) {
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
@@ -559,7 +568,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Canvas drawing
+      // Canvas drawing (unchanged)
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -656,8 +665,8 @@
         }
       };
 
-      var progressPercent = (currentBallIdx >= 0 && totalBalls > 0) ? ((currentBallIdx+1)/totalBalls)*100 : 0;
-      const isMatchOver = (currentInningsIdx === 1 && currentBallIdx + 1 >= totalBalls && currentBallIdx !== -1);
+      var progressPercent = (currentBallIdx >= 0 && totalDeliveries > 0) ? ((currentBallIdx+1)/totalDeliveries)*100 : 0;
+      const isMatchOver = (currentInningsIdx === 1 && isInningsFinished);
       const startDisabled = isMatchOver;
 
       return React.createElement('div', { className: "space-y-6" },
@@ -678,7 +687,7 @@
                 React.createElement('div', null,
                   React.createElement('span', { className: "text-4xl font-black text-teal-300" }, matchState.totalRuns),
                   React.createElement('span', { className: "text-2xl font-bold text-gray-300" }, "/", matchState.wickets),
-                  React.createElement('div', { className: "text-gray-400 text-sm mt-1" }, "Innings ", currentInningsIdx+1, " • Overs: ", matchState.overs, " (", matchState.ballsCount, " balls)")
+                  React.createElement('div', { className: "text-gray-400 text-sm mt-1" }, "Innings ", currentInningsIdx+1, " • Overs: ", matchState.overs, " (", matchState.legalBalls, " legal balls)")
                 ),
                 React.createElement('div', { className: "bg-teal-900/50 px-4 py-2 rounded-xl text-right" },
                   React.createElement('div', { className: "text-xs text-teal-300" }, currentInningsIdx === 1 ? `Target: ${target}` : "1st Innings"),
@@ -698,7 +707,7 @@
             React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
               !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: startDisabled, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
                 : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
-              React.createElement('button', { onClick: manualNextBall, disabled: currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
+              React.createElement('button', { onClick: manualNextBall, disabled: isInningsFinished || currentBallIdx+1 >= totalDeliveries, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
               React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
               React.createElement('div', { className: "flex items-center gap-2 ml-auto" },
                 React.createElement('span', { className: "text-xs" }, "Speed:"),
@@ -729,11 +738,11 @@
             React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. After download, upload manually to YouTube.")
           )
         ),
-        (currentBallIdx+1 >= totalBalls && currentInningsIdx === 1 && currentBallIdx !== -1) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center animate-pulse" },
-          "🏆 MATCH FINISHED! Final Score: ", matchState.totalRuns, "/", matchState.wickets, " • Target: ", target, " 🏆"
-        ),
-        (currentBallIdx+1 >= totalBalls && currentInningsIdx === 0 && currentBallIdx !== -1) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" },
+        (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" },
           "🏏 First innings finished! Click START to begin the chase. 🏏"
+        ),
+        (currentInningsIdx === 1 && isInningsFinished) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center animate-pulse" },
+          "🏆 MATCH FINISHED! Final Score: ", matchState.totalRuns, "/", matchState.wickets, " • Target: ", target, " 🏆"
         )
       );
     };
