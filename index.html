@@ -43,7 +43,7 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
-    // Realistic commentary generator (unchanged)
+    // Realistic commentary generator
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
       const runs = delivery.runs;
@@ -409,6 +409,7 @@
       const [isSpeaking, setIsSpeaking] = React.useState(false);
       const [target, setTarget] = React.useState(initialTarget);
       const [firstInningsStats, setFirstInningsStats] = React.useState(null);
+      const startGuardRef = React.useRef(false); // prevent multiple start calls
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -537,6 +538,7 @@
           try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
+        startGuardRef.current = false;
         setCurrentInningsIdx(0);
         setCurrentBallIdx(-1);
         setCommentaryLog([]);
@@ -550,7 +552,12 @@
       };
 
       var startMatch = function() {
-        // If first innings is finished but we are still in first innings index, switch to second
+        // prevent multiple calls
+        if (startGuardRef.current) return;
+        startGuardRef.current = true;
+        setTimeout(() => { startGuardRef.current = false; }, 500);
+
+        // If we are in first innings and it's finished, switch to second innings
         if (currentInningsIdx === 0 && isInningsFinished) {
           // Transition to second innings
           const firstTotal = matchState.totalRuns;
@@ -565,16 +572,14 @@
           setTarget(firstTotal + 1);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
-          // Now start the second innings by calling this function again (will now be in second innings)
-          // We'll let the next render handle, but we must set playing after the state update.
-          // Since state updates are async, we schedule the start after the state has changed.
+          // Start the second innings after state update
           setTimeout(() => {
             startMatch(); // recursive call after state updated
-          }, 0);
+          }, 50);
           return;
         }
 
-        // Normal start: if at the beginning of an innings, play first ball
+        // Normal start: if at beginning of an innings, play first ball
         if (currentBallIdx === -1) {
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
