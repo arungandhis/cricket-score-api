@@ -430,7 +430,7 @@
       const [matchResult, setMatchResult] = React.useState(null);
       const startGuardRef = React.useRef(false);
       const introPlayedRef = React.useRef(false);
-      const summaryTriggeredRef = React.useRef(false); // ensure summary only once
+      const firstInningsSummaryTriggeredRef = React.useRef(false); // prevent duplicate summaries
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -476,22 +476,21 @@
         }
       };
 
-      // First innings summary (called after first innings ends)
-      const showFirstInningsSummary = () => {
-        if (!firstInningsStats) return;
-        const topScorer = getTopScorer(firstInningsStats.battingStats);
-        const bestBowler = getBestBowler(firstInningsStats.bowlingStats);
-        let summary = `End of first innings. ${firstInningsStats.team} scored ${firstInningsStats.total}/${firstInningsStats.wickets} in ${matchState.overs} overs. `;
+      // First innings summary – now called directly
+      const showFirstInningsSummary = (inningTeam, total, wickets, overs, battingStats, bowlingStats, targetScore) => {
+        const topScorer = getTopScorer(battingStats);
+        const bestBowler = getBestBowler(bowlingStats);
+        let summary = `End of first innings. ${inningTeam} scored ${total}/${wickets} in ${overs} overs. `;
         if (topScorer.name) summary += `Top scorer: ${topScorer.name} with ${topScorer.runs} runs off ${topScorer.balls} balls (${topScorer.fours} fours, ${topScorer.sixes} sixes). `;
         if (bestBowler.name) summary += `Best bowler: ${bestBowler.name} with ${bestBowler.wickets} wickets for ${bestBowler.runs} runs. `;
-        summary += `${matchInfo.team2} needs ${target} runs to win.`;
+        summary += `${matchInfo.team2} needs ${targetScore} runs to win.`;
         addSummaryEntry(summary);
         if (!muteAudio) {
           speakWithCallback(summary, 1, () => {});
         }
       };
 
-      // Full match summary (called after second innings ends)
+      // Full match summary (unchanged)
       const showFullMatchSummary = () => {
         if (currentInningsIdx !== 1 || !isInningsFinished) return;
         const secondInnings = currentInnings;
@@ -500,7 +499,6 @@
         const winner = secondTotal >= target ? matchInfo.team2 : matchInfo.team1;
         const margin = secondTotal >= target ? `${target - secondTotal} wickets` : `${target - secondTotal - 1} runs`;
         let resultText = `Match result: ${winner} wins by ${margin}. `;
-        // Top performers from both innings
         const firstTopScorer = getTopScorer(firstInningsStats.battingStats);
         const firstBestBowler = getBestBowler(firstInningsStats.bowlingStats);
         const secondTopScorer = getTopScorer(secondInnings.battingStats);
@@ -519,7 +517,7 @@
         }
       };
 
-      // Store first innings stats after first innings ends
+      // Store first innings stats after first innings ends (used for display and later summary)
       React.useEffect(() => {
         if (currentInningsIdx === 1 && firstInningsStats === null) {
           const firstInnings = inningsData[0];
@@ -536,15 +534,7 @@
         }
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
-      // Trigger first innings summary when the first innings finishes and stats are available
-      React.useEffect(() => {
-        if (currentInningsIdx === 0 && isInningsFinished && firstInningsStats && !summaryTriggeredRef.current) {
-          summaryTriggeredRef.current = true;
-          showFirstInningsSummary();
-        }
-      }, [currentInningsIdx, isInningsFinished, firstInningsStats]);
-
-      // After match ends, show full summary (reset trigger flag on reset)
+      // After match ends, show full summary
       React.useEffect(() => {
         if (currentInningsIdx === 1 && isInningsFinished && firstInningsStats) {
           showFullMatchSummary();
@@ -562,23 +552,35 @@
         // If innings finished (overs or all out), end it
         if (isInningsFinished) {
           if (currentInningsIdx === 0) {
-            // First innings finished
-            setIsPlaying(false);
+            // First innings finished – show summary now
             const firstTotal = matchState.totalRuns;
             const firstWickets = matchState.wickets;
+            const firstOvers = matchState.overs;
+            const firstTeam = currentInnings.team;
+            const firstBattingStats = currentInnings.battingStats;
+            const firstBowlingStats = currentInnings.bowlingStats;
+            const targetScore = firstTotal + 1;
+
+            // Show summary BEFORE switching innings
+            if (!firstInningsSummaryTriggeredRef.current) {
+              firstInningsSummaryTriggeredRef.current = true;
+              showFirstInningsSummary(firstTeam, firstTotal, firstWickets, firstOvers, firstBattingStats, firstBowlingStats, targetScore);
+            }
+
+            // Now switch to second innings
+            setIsPlaying(false);
             setFirstInningsStats({
-              team: currentInnings.team,
-              battingStats: currentInnings.battingStats,
-              bowlingStats: currentInnings.bowlingStats,
+              team: firstTeam,
+              battingStats: firstBattingStats,
+              bowlingStats: firstBowlingStats,
               total: firstTotal,
               wickets: firstWickets
             });
-            setTarget(firstTotal + 1);
+            setTarget(targetScore);
             setCurrentInningsIdx(1);
             setCurrentBallIdx(-1);
-            summaryTriggeredRef.current = false; // reset for second innings summary
             if (!muteAudio) {
-              speakWithCallback(`End of first innings. ${currentInnings.team} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${firstTotal+1} runs to win. Press start to begin the chase.`, 0, function() {});
+              speakWithCallback(`End of first innings. ${firstTeam} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${targetScore} runs to win. Press start to begin the chase.`, 0, function() {});
             }
           } else {
             // Second innings finished
@@ -640,7 +642,7 @@
         }
         startGuardRef.current = false;
         introPlayedRef.current = false;
-        summaryTriggeredRef.current = false;
+        firstInningsSummaryTriggeredRef.current = false;
         setCurrentInningsIdx(0);
         setCurrentBallIdx(-1);
         setCommentaryLog([]);
@@ -665,19 +667,29 @@
         }
 
         if (currentInningsIdx === 0 && isInningsFinished) {
+          // This case should be rare because the innings would have already been ended
+          // But we handle it for safety
           const firstTotal = matchState.totalRuns;
           const firstWickets = matchState.wickets;
+          const firstOvers = matchState.overs;
+          const firstTeam = currentInnings.team;
+          const firstBattingStats = currentInnings.battingStats;
+          const firstBowlingStats = currentInnings.bowlingStats;
+          const targetScore = firstTotal + 1;
+          if (!firstInningsSummaryTriggeredRef.current) {
+            firstInningsSummaryTriggeredRef.current = true;
+            showFirstInningsSummary(firstTeam, firstTotal, firstWickets, firstOvers, firstBattingStats, firstBowlingStats, targetScore);
+          }
           setFirstInningsStats({
-            team: currentInnings.team,
-            battingStats: currentInnings.battingStats,
-            bowlingStats: currentInnings.bowlingStats,
+            team: firstTeam,
+            battingStats: firstBattingStats,
+            bowlingStats: firstBowlingStats,
             total: firstTotal,
             wickets: firstWickets
           });
-          setTarget(firstTotal + 1);
+          setTarget(targetScore);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
-          summaryTriggeredRef.current = false;
           setTimeout(() => { startMatch(); }, 50);
           return;
         }
