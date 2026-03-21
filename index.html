@@ -43,9 +43,9 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
-    // Enhanced realistic commentary with emotion
+    // Enhanced realistic commentary with emotion (unchanged)
     // --------------------------------------------------------------
-    const generateRealisticCommentary = (delivery, inningsIdx, target) => {
+    const generateRealisticCommentary = (delivery, inningsIdx, target, isWinningRun = false) => {
       const runs = delivery.runs;
       const isWicket = delivery.wicket;
       const wicketKind = delivery.wicketKind;
@@ -441,7 +441,7 @@
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
       const addCommentaryEntry = function(delivery, idx) {
-        const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target);
+        const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target, false);
         const ballDesc = `Innings ${currentInningsIdx+1} • Over ${delivery.over}.${delivery.ball} • ${delivery.striker} • ${delivery.bowler} → ${commentaryText}${delivery.wicket ? " 🚨 WICKET!" : ""}`;
         setCommentaryLog(prev => [{ id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket }, ...prev].slice(0, 50));
         return commentaryText;
@@ -647,11 +647,6 @@
 
       var progressPercent = (currentBallIdx >= 0) ? ((currentBallIdx+1)/totalBalls)*100 : 0;
 
-      // Determine if the START button should be disabled
-      // Only disabled if the match is fully over (second innings finished)
-      const isMatchOver = (currentInningsIdx === 1 && currentBallIdx+1 >= totalBalls);
-      const startDisabled = isMatchOver;
-
       return React.createElement('div', { className: "space-y-6" },
         React.createElement('div', { className: "flex flex-wrap justify-between items-center gap-3 bg-gray-800/50 p-4 rounded-2xl" },
           React.createElement('div', null,
@@ -688,7 +683,7 @@
               )
             ),
             React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
-              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: startDisabled, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
+              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: (currentInningsIdx === 1 && currentBallIdx+1 >= totalBalls) || (currentInningsIdx === 0 && currentBallIdx+1 >= totalBalls && currentInningsIdx === 0 && currentBallIdx !== -1), className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
                 : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
               React.createElement('button', { onClick: manualNextBall, disabled: currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
               React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
