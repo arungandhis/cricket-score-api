@@ -104,7 +104,7 @@
       return `${runs} runs taken.`;
     };
 
-    // Voice selection (unchanged)
+    // Voice selection
     let selectedVoice = null;
     const getBestVoice = () => {
       return new Promise((resolve) => {
@@ -321,7 +321,7 @@
                   React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "2", d: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" })
                 ),
                 React.createElement('p', { className: "mb-2 text-sm text-gray-300" }, React.createElement('span', { className: "font-semibold" }, "Click to upload"), " Cricsheet JSON"),
-                React.createElement('p', { className: "text-xs text-gray-400" }, "Full match (both innings) – now ends correctly after max overs")
+                React.createElement('p', { className: "text-xs text-gray-400" }, "Full match – both innings working")
               ),
               React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: handleFileUpload })
             ),
@@ -427,7 +427,7 @@
 
       const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
 
-      // Check if innings is finished (max overs reached)
+      // Check if current innings is finished (max overs reached)
       const isInningsFinished = matchState.legalBalls >= maxOvers * 6;
 
       React.useEffect(() => {
@@ -550,8 +550,31 @@
       };
 
       var startMatch = function() {
-        // If innings is finished, do nothing (should be handled by button disabled)
-        if (isInningsFinished) return;
+        // If first innings is finished but we are still in first innings index, switch to second
+        if (currentInningsIdx === 0 && isInningsFinished) {
+          // Transition to second innings
+          const firstTotal = matchState.totalRuns;
+          const firstWickets = matchState.wickets;
+          setFirstInningsStats({
+            team: currentInnings.team,
+            battingStats: currentInnings.battingStats,
+            bowlingStats: currentInnings.bowlingStats,
+            total: firstTotal,
+            wickets: firstWickets
+          });
+          setTarget(firstTotal + 1);
+          setCurrentInningsIdx(1);
+          setCurrentBallIdx(-1);
+          // Now start the second innings by calling this function again (will now be in second innings)
+          // We'll let the next render handle, but we must set playing after the state update.
+          // Since state updates are async, we schedule the start after the state has changed.
+          setTimeout(() => {
+            startMatch(); // recursive call after state updated
+          }, 0);
+          return;
+        }
+
+        // Normal start: if at the beginning of an innings, play first ball
         if (currentBallIdx === -1) {
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
