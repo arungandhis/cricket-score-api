@@ -5,49 +5,434 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Cricket Live Studio</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    body { background: #111; color: #eee; font-family: sans-serif; margin: 20px; }
-    #root { padding: 20px; text-align: center; }
+    * { font-family: 'Inter', sans-serif; }
+    .commentary-text { font-family: 'JetBrains Mono', monospace; }
+    canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; }
     .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; }
   </style>
 </head>
-<body>
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
   <div id="root">Loading application...</div>
   <div id="error-message" style="display: none;"></div>
 
   <script>
-    // Capture errors and show them
+    // Global error handler
     window.onerror = function(msg, url, line, col, error) {
       var errDiv = document.getElementById('error-message');
       errDiv.style.display = 'block';
       errDiv.className = 'error-bar';
-      errDiv.innerHTML = '⚠️ JavaScript error: ' + (error ? error.message : msg);
+      errDiv.innerHTML = '⚠️ ' + (error ? error.message : msg);
       return true;
     };
-    // Check if React loads
     setTimeout(function() {
       if (typeof React === 'undefined') {
         var errDiv = document.getElementById('error-message');
         errDiv.style.display = 'block';
         errDiv.className = 'error-bar';
-        errDiv.innerHTML = '⚠️ React failed to load. Check your internet connection or CDN.';
+        errDiv.innerHTML = '⚠️ React failed to load. Check your internet connection.';
       }
     }, 3000);
   </script>
 
-  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
 
   <script type="text/babel">
-    // Simple test app – just a welcome message
-    const App = () => {
-      return React.createElement('div', null, [
-        React.createElement('h1', { key: 'title', className: 'text-3xl font-bold text-teal-400' }, '🏏 Cricket Live Studio'),
-        React.createElement('p', { key: 'desc' }, 'Upload a Cricsheet JSON file to start the simulation.'),
-        React.createElement('input', { key: 'file', type: 'file', accept: '.json', onChange: (e) => alert('File selected: ' + e.target.files[0]?.name) })
-      ]);
+    // --------------------------------------------------------------
+    // Parser for Cricsheet JSON (safe version, no optional chaining)
+    // --------------------------------------------------------------
+    const parseCricsheetJSON = (json) => {
+      if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length === 0) {
+        throw new Error("Invalid Cricsheet format: missing 'info' or 'innings' array");
+      }
+
+      const matchInfo = {
+        teams: (json.info.teams && json.info.teams.join(" vs ")) || "Team A vs Team B",
+        venue: json.info.venue || "Unknown Venue",
+        date: (json.info.dates && json.info.dates[0]) || "Unknown Date",
+        winner: (json.info.outcome && json.info.outcome.winner) || "N/A"
+      };
+
+      const firstInnings = json.innings[0];
+      const deliveriesFlat = [];
+
+      for (var i = 0; i < firstInnings.overs.length; i++) {
+        var overObj = firstInnings.overs[i];
+        var overNum = overObj.over;
+        for (var j = 0; j < overObj.deliveries.length; j++) {
+          var delivery = overObj.deliveries[j];
+          var runs = (delivery.runs && delivery.runs.total) || 0;
+          var isWicket = !!(delivery.wickets && delivery.wickets.length);
+          var wicketKind = null;
+          var wicketPlayer = null;
+          if (isWicket) {
+            var w = delivery.wickets[0];
+            wicketKind = w.kind;
+            wicketPlayer = w.player_out;
+          }
+
+          // Generate commentary
+          var commentary = "";
+          var extras = (delivery.runs && delivery.runs.extras) || 0;
+          if (isWicket) {
+            commentary = wicketPlayer + " is out! " + wicketKind + (wicketKind === "run out" ? "!" : "") + " Brilliant fielding!";
+          } else if (extras > 0) {
+            if (delivery.extras && delivery.extras.wides) commentary = "Wide! " + extras + " run(s) added.";
+            else if (delivery.extras && delivery.extras.byes) commentary = "Byes! " + extras + " runs.";
+            else if (delivery.extras && delivery.extras.legbyes) commentary = "Leg‑byes! " + extras + " runs.";
+            else commentary = extras + " extras.";
+          } else {
+            if (runs === 0) commentary = "Dot ball! Good bowling.";
+            else if (runs === 1) commentary = "Quick single! Good running.";
+            else if (runs === 2) commentary = "Two runs, well placed.";
+            else if (runs === 4) commentary = "FOUR! Hammered to the boundary!";
+            else if (runs === 6) commentary = "SIX! High and handsome!";
+            else commentary = runs + " runs taken.";
+          }
+
+          deliveriesFlat.push({
+            over: overNum,
+            ball: delivery.ball || ((deliveriesFlat.length % 6) + 1),
+            runs: runs,
+            wicket: isWicket,
+            wicketKind: wicketKind,
+            commentary: commentary,
+            striker: delivery.batter,
+            nonStriker: delivery.non_striker,
+            bowler: delivery.bowler
+          });
+        }
+      }
+      return { matchInfo: matchInfo, deliveries: deliveriesFlat, battingTeam: firstInnings.team };
     };
+
+    const computeStateUpTo = function(deliveries, maxIndex) {
+      var totalRuns = 0, wickets = 0, ballsCount = 0;
+      for (var i = 0; i <= maxIndex; i++) {
+        var d = deliveries[i];
+        totalRuns += d.runs;
+        if (d.wicket) wickets++;
+        ballsCount++;
+      }
+      var oversDecimal = Math.floor(ballsCount / 6) + (ballsCount % 6) / 10;
+      return { totalRuns: totalRuns, wickets: wickets, ballsCount: ballsCount, overs: oversDecimal.toFixed(1) };
+    };
+
+    const App = () => {
+      const [matchData, setMatchData] = React.useState(null);
+      const [error, setError] = React.useState(null);
+      const [fileName, setFileName] = React.useState("");
+
+      const handleFileUpload = (event) => {
+        var file = event.target.files[0];
+        if (!file) return;
+        setFileName(file.name);
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            var json = JSON.parse(e.target.result);
+            var parsed = parseCricsheetJSON(json);
+            setMatchData(parsed);
+            setError(null);
+          } catch (err) {
+            setError(err.message);
+            setMatchData(null);
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      const resetToUpload = function() {
+        setMatchData(null);
+        setError(null);
+        setFileName("");
+      };
+
+      if (!matchData) {
+        return React.createElement('div', { className: "max-w-2xl mx-auto bg-gray-800/60 backdrop-blur-sm rounded-2xl p-8 border border-gray-700" },
+          React.createElement('div', { className: "flex flex-col items-center justify-center gap-6" },
+            React.createElement('label', { className: "flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-teal-500/50 rounded-xl cursor-pointer bg-gray-900/40 hover:bg-gray-800/60" },
+              React.createElement('div', { className: "flex flex-col items-center justify-center pt-5 pb-6" },
+                React.createElement('svg', { className: "w-10 h-10 mb-3 text-teal-400", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" },
+                  React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "2", d: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" })
+                ),
+                React.createElement('p', { className: "mb-2 text-sm text-gray-300" }, React.createElement('span', { className: "font-semibold" }, "Click to upload"), " Cricsheet JSON"),
+                React.createElement('p', { className: "text-xs text-gray-400" }, "Your IPL 2008 file is fully compatible!")
+              ),
+              React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: handleFileUpload })
+            ),
+            error && React.createElement('div', { className: "bg-red-900/50 border border-red-500 rounded-lg p-3 w-full text-red-200 text-sm" }, "⚠️ ", error)
+          )
+        );
+      } else {
+        return React.createElement(MatchSimulator, { matchData: matchData, onReset: resetToUpload });
+      }
+    };
+
+    const MatchSimulator = function(props) {
+      var deliveries = props.matchData.deliveries;
+      var matchInfo = props.matchData.matchInfo;
+      var totalBalls = deliveries.length;
+
+      var [currentBallIdx, setCurrentBallIdx] = React.useState(-1);
+      var [isPlaying, setIsPlaying] = React.useState(false);
+      var [speed, setSpeed] = React.useState(1);
+      var [muteAudio, setMuteAudio] = React.useState(false);
+      var [commentaryLog, setCommentaryLog] = React.useState([]);
+
+      var canvasRef = React.useRef(null);
+      var mediaRecorderRef = React.useRef(null);
+      var recordedChunksRef = React.useRef([]);
+      var [isRecording, setIsRecording] = React.useState(false);
+      var [videoBlobUrl, setVideoBlobUrl] = React.useState(null);
+
+      var matchState = React.useMemo(function() {
+        if (currentBallIdx < 0) return { totalRuns: 0, wickets: 0, ballsCount: 0, overs: "0.0" };
+        return computeStateUpTo(deliveries, currentBallIdx);
+      }, [currentBallIdx, deliveries]);
+
+      var currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalBalls) ? deliveries[currentBallIdx] : null;
+
+      var addCommentaryEntry = function(delivery, idx) {
+        var ballDesc = "Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + delivery.commentary + (delivery.wicket ? " 🚨 WICKET!" : "");
+        setCommentaryLog(function(prev) {
+          var newEntry = { id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket || false };
+          return [newEntry].concat(prev).slice(0, 50);
+        });
+      };
+
+      var speakCommentary = function(text) {
+        if (muteAudio) return;
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        var utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.95;
+        utterance.lang = 'en-US';
+        window.speechSynthesis.speak(utterance);
+      };
+
+      var playNextBall = React.useCallback(function() {
+        if (currentBallIdx + 1 >= totalBalls) {
+          setIsPlaying(false);
+          if (!muteAudio && window.speechSynthesis) {
+            var finalUtter = new SpeechSynthesisUtterance("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.");
+            window.speechSynthesis.speak(finalUtter);
+          }
+          return;
+        }
+        var nextIdx = currentBallIdx + 1;
+        var nextDelivery = deliveries[nextIdx];
+        setCurrentBallIdx(nextIdx);
+        addCommentaryEntry(nextDelivery, nextIdx);
+        speakCommentary(nextDelivery.striker + " facing " + nextDelivery.bowler + ". " + nextDelivery.commentary);
+      }, [currentBallIdx, deliveries, totalBalls, matchState.totalRuns, matchState.wickets, muteAudio]);
+
+      React.useEffect(function() {
+        if (!isPlaying) return;
+        var intervalTime = 1800 / speed;
+        var timer = setInterval(playNextBall, intervalTime);
+        return function() { clearInterval(timer); };
+      }, [isPlaying, playNextBall, speed]);
+
+      var resetSimulation = function() {
+        setIsPlaying(false);
+        setCurrentBallIdx(-1);
+        setCommentaryLog([]);
+        setVideoBlobUrl(null);
+        if (mediaRecorderRef.current && isRecording) {
+          mediaRecorderRef.current.stop();
+          setIsRecording(false);
+        }
+      };
+
+      var startMatch = function() {
+        if (currentBallIdx === -1) {
+          setCurrentBallIdx(0);
+          addCommentaryEntry(deliveries[0], 0);
+          speakCommentary(deliveries[0].striker + " facing " + deliveries[0].bowler + ". " + deliveries[0].commentary);
+        }
+        setIsPlaying(true);
+      };
+
+      var pauseMatch = function() { setIsPlaying(false); };
+
+      var drawCanvas = React.useCallback(function() {
+        var canvas = canvasRef.current;
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        var w = canvas.width, h = canvas.height;
+
+        var grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, '#0b2b26');
+        grad.addColorStop(1, '#051a17');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = '#2dd4bf';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(5, 5, w-10, h-10);
+
+        ctx.font = 'bold 28px "Inter", sans-serif';
+        ctx.fillStyle = '#f0fdf4';
+        ctx.fillText(matchInfo.teams, 30, 55);
+        ctx.font = '14px monospace';
+        ctx.fillStyle = '#a3e9d6';
+        ctx.fillText(matchInfo.venue + " • " + matchInfo.date, 30, 85);
+
+        ctx.fillStyle = '#000000aa';
+        ctx.fillRect(30, 110, w-60, 80);
+        ctx.font = 'bold 42px monospace';
+        ctx.fillStyle = '#facc15';
+        ctx.fillText(matchState.totalRuns + "/" + matchState.wickets, 50, 170);
+        ctx.font = '24px monospace';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.fillText("(" + matchState.overs + " overs)", 260, 165);
+
+        if (currentDelivery) {
+          ctx.font = 'bold 18px "Inter"';
+          ctx.fillStyle = '#d9f99d';
+          ctx.fillText("🏏 STRIKER: " + currentDelivery.striker, 50, 215);
+          ctx.fillStyle = '#c4f0e6';
+          ctx.fillText("🔄 NON-STRIKER: " + currentDelivery.nonStriker, 50, 245);
+          ctx.fillStyle = '#fde047';
+          ctx.fillText("⚡ BOWLER: " + currentDelivery.bowler, 50, 275);
+        } else {
+          ctx.fillStyle = '#aaa';
+          ctx.fillText("⚡ Awaiting start...", 50, 240);
+        }
+
+        var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
+        ctx.fillStyle = '#1e2a2acc';
+        ctx.fillRect(30, h-130, w-60, 90);
+        ctx.font = 'italic 16px "JetBrains Mono"';
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText("🎙️ LATEST BALL:", 40, h-100);
+        ctx.font = '14px "JetBrains Mono"';
+        ctx.fillStyle = '#f1f5f9';
+        var wrapped = lastComment.length > 70 ? lastComment.slice(0,70)+"..." : lastComment;
+        ctx.fillText(wrapped, 40, h-70);
+
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#4b5563';
+        ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
+      }, [matchState, currentDelivery, commentaryLog, matchInfo]);
+
+      React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
+
+      var startRecording = function() {
+        if (!canvasRef.current) return;
+        var stream = canvasRef.current.captureStream(30);
+        recordedChunksRef.current = [];
+        var mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
+        mediaRecorder.onstop = function() {
+          var blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+          var url = URL.createObjectURL(blob);
+          setVideoBlobUrl(url);
+          setIsRecording(false);
+        };
+        mediaRecorder.start();
+        mediaRecorderRef.current = mediaRecorder;
+        setIsRecording(true);
+      };
+
+      var stopRecording = function() {
+        if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+      };
+
+      var downloadVideo = function() {
+        if (videoBlobUrl) {
+          var a = document.createElement('a');
+          a.href = videoBlobUrl;
+          a.download = "cricket-highlights-" + Date.now() + ".webm";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } else {
+          alert("No recorded video. Click 'Start Recording' and simulate the match.");
+        }
+      };
+
+      var progressPercent = (currentBallIdx >= 0) ? ((currentBallIdx+1)/totalBalls)*100 : 0;
+
+      return React.createElement('div', { className: "space-y-6" },
+        React.createElement('div', { className: "flex flex-wrap justify-between items-center gap-3 bg-gray-800/50 p-4 rounded-2xl" },
+          React.createElement('div', null,
+            React.createElement('h2', { className: "text-2xl font-bold" }, matchInfo.teams),
+            React.createElement('p', { className: "text-sm text-gray-300" }, matchInfo.venue + " • " + matchInfo.date)
+          ),
+          React.createElement('button', { onClick: props.onReset, className: "px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm" }, "🔄 Upload New JSON")
+        ),
+        React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
+          React.createElement('div', { className: "lg:col-span-2 space-y-4" },
+            React.createElement('div', { className: "bg-black/40 rounded-2xl p-5 border border-teal-500/30" },
+              React.createElement('div', { className: "flex justify-between items-center flex-wrap" },
+                React.createElement('div', null,
+                  React.createElement('span', { className: "text-4xl font-black text-teal-300" }, matchState.totalRuns),
+                  React.createElement('span', { className: "text-2xl font-bold text-gray-300" }, "/", matchState.wickets),
+                  React.createElement('div', { className: "text-gray-400 text-sm mt-1" }, "Overs: ", matchState.overs, " (", matchState.ballsCount, " balls)")
+                ),
+                React.createElement('div', { className: "bg-teal-900/50 px-4 py-2 rounded-xl text-right" },
+                  React.createElement('div', { className: "text-xs text-teal-300" }, "REQUIRED / CRR"),
+                  React.createElement('div', { className: "text-sm font-mono" }, "— Simulating —")
+                )
+              ),
+              React.createElement('div', { className: "w-full bg-gray-700 h-2 rounded-full mt-4" },
+                React.createElement('div', { className: "bg-teal-400 h-2 rounded-full transition-all duration-300", style: { width: progressPercent + "%" } })
+              ),
+              currentDelivery && React.createElement('div', { className: "grid grid-cols-2 gap-4 mt-5 text-sm" },
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery.striker)),
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Non-striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery.nonStriker)),
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Bowler:"), " ", React.createElement('span', { className: "font-bold text-emerald-300" }, currentDelivery.bowler)),
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Last Ball:"), " ", React.createElement('span', { className: "font-mono" }, currentDelivery.runs, " runs", currentDelivery.wicket ? " ❌ Wicket" : ""))
+              )
+            ),
+            React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
+              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: currentBallIdx+1 >= totalBalls, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
+                : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
+              React.createElement('button', { onClick: playNextBall, disabled: isPlaying || currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
+              React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
+              React.createElement('div', { className: "flex items-center gap-2 ml-auto" },
+                React.createElement('span', { className: "text-xs" }, "Speed:"),
+                [1,2,4].map(function(sp) {
+                  return React.createElement('button', { key: sp, onClick: function() { setSpeed(sp); }, className: "px-3 py-1 rounded-md text-xs " + (speed === sp ? "bg-teal-600" : "bg-gray-700") }, sp + "x");
+                })
+              ),
+              React.createElement('button', { onClick: function() { setMuteAudio(!muteAudio); }, className: "px-3 py-1 rounded-md text-xs " + (muteAudio ? "bg-red-700" : "bg-teal-700") }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On")
+            ),
+            React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
+              React.createElement('h3', { className: "font-bold text-teal-300 mb-2" }, "🎙️ LIVE COMMENTARY"),
+              commentaryLog.length === 0 && React.createElement('p', { className: "text-gray-500 text-sm italic" }, "No commentary yet."),
+              React.createElement('div', { className: "space-y-2" },
+                commentaryLog.map(function(c) {
+                  return React.createElement('div', { key: c.id, className: "p-2 rounded-md text-sm " + (c.isWicket ? "bg-red-900/30 border-l-4 border-red-500" : "bg-gray-800/50") },
+                    React.createElement('span', { className: "text-gray-400 text-[11px] mr-2" }, c.timestamp),
+                    React.createElement('span', { className: "commentary-text text-gray-200" }, c.text)
+                  );
+                })
+              )
+            )
+          ),
+          React.createElement('div', { className: "bg-gray-800/40 rounded-2xl p-4 backdrop-blur-sm" },
+            React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "📹 VIDEO COMMENTARY (Broadcast)"),
+            React.createElement('canvas', { ref: canvasRef, width: 550, height: 360, className: "w-full h-auto rounded-xl border border-teal-500/40", style: { aspectRatio: '550/360' } }),
+            React.createElement('div', { className: "flex flex-wrap gap-2 mt-4" },
+              !isRecording ? React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "🔴 Start Recording")
+                : React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1.5 rounded-full" }, "⏹️ Stop & Save"),
+              React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "📥 Download Video")
+            ),
+            videoBlobUrl && React.createElement('div', { className: "mt-3 text-xs text-center text-green-300 bg-gray-900/60 p-2 rounded-lg" }, "✅ Video ready! Download and upload to YouTube."),
+            React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. After download, upload manually to YouTube.")
+          )
+        ),
+        (currentBallIdx+1 >= totalBalls && currentBallIdx !== -1) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center animate-pulse" },
+          "🏆 MATCH FINISHED! Final Score: ", matchState.totalRuns, "/", matchState.wickets, " in ", matchState.overs, " overs 🏆"
+        )
+      );
+    };
+
     ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
   </script>
 </body>
