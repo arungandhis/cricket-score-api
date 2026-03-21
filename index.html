@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Realistic Audio Sync</title>
+  <title>Cricket Live Studio – Full Match Simulator</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -40,8 +40,10 @@
   <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
 
   <script type="text/babel">
-    // Enhanced realistic commentary – safe syntax (no optional chaining)
-    const generateRealisticCommentary = (delivery) => {
+    // --------------------------------------------------------------
+    // Enhanced realistic commentary with emotion
+    // --------------------------------------------------------------
+    const generateRealisticCommentary = (delivery, inningsIndex, target, isWinningRun = false) => {
       const runs = delivery.runs;
       const isWicket = delivery.wicket;
       const wicketKind = delivery.wicketKind;
@@ -70,13 +72,17 @@
         "run out": "Run out! Direct hit!",
         stumped: "Stumped! The keeper whips the bails off!"
       };
+      const excitingAddons = {
+        4: " What a shot!",
+        6: " Absolutely massive!",
+        wicket: " The crowd erupts!"
+      };
 
       if (isWicket) {
         let phrase = wicketPhrases[wicketKind] || "Wicket! The batsman has to go!";
         return `${striker} is out! ${phrase}`;
       }
       if (extras > 0) {
-        // Safe check for extrasObj
         if (delivery.extrasObj && delivery.extrasObj.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
         if (delivery.extrasObj && delivery.extrasObj.byes) return `Byes! ${extras} runs. The keeper missed it.`;
         if (delivery.extrasObj && delivery.extrasObj.legbyes) return `Leg‑byes! ${extras} runs.`;
@@ -88,8 +94,16 @@
       }
       if (runs === 1) return "Quick single! They scamper through.";
       if (runs === 2) return "Two runs. Good running between the wickets.";
-      if (runs === 4) return boundaryPhrases[Math.floor(Math.random() * boundaryPhrases.length)];
-      if (runs === 6) return sixPhrases[Math.floor(Math.random() * sixPhrases.length)];
+      if (runs === 4) {
+        let phrase = boundaryPhrases[Math.floor(Math.random() * boundaryPhrases.length)];
+        if (inningsIndex === 1 && target && (target - (delivery.currentScore || 0) <= 4)) phrase += " The scores are level!";
+        return phrase;
+      }
+      if (runs === 6) {
+        let phrase = sixPhrases[Math.floor(Math.random() * sixPhrases.length)];
+        if (inningsIndex === 1 && target && (target - (delivery.currentScore || 0) <= 6)) phrase += " Just one big hit away!";
+        return phrase;
+      }
       return `${runs} runs taken.`;
     };
 
@@ -113,9 +127,8 @@
       });
     };
 
-    // Speech with callback – robust
     let currentUtterance = null;
-    const speakWithCallback = async (text, excitement, onEnd) => {
+    const speakWithCallback = async (text, excitementLevel, onEnd) => {
       if (!window.speechSynthesis) {
         if (onEnd) onEnd();
         return;
@@ -129,8 +142,17 @@
       }
       const utterance = new SpeechSynthesisUtterance(text);
       if (selectedVoice) utterance.voice = selectedVoice;
-      utterance.rate = excitement ? 1.0 : 0.9;
-      utterance.pitch = excitement ? 1.1 : 0.95;
+      // Vary rate/pitch based on excitement (0=normal, 1=high, 2=very high)
+      if (excitementLevel === 2) {
+        utterance.rate = 1.1;
+        utterance.pitch = 1.2;
+      } else if (excitementLevel === 1) {
+        utterance.rate = 1.0;
+        utterance.pitch = 1.05;
+      } else {
+        utterance.rate = 0.9;
+        utterance.pitch = 0.95;
+      }
       utterance.volume = 1;
       utterance.onend = () => {
         currentUtterance = null;
@@ -148,56 +170,69 @@
       }
     };
 
-    // Parser for Cricsheet JSON
+    // Parser for Cricsheet JSON – returns both innings
     const parseCricsheetJSON = (json) => {
-      if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length === 0) {
-        throw new Error("Invalid Cricsheet format: missing 'info' or 'innings' array");
+      if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
+        throw new Error("Invalid Cricsheet format: need two innings");
       }
       const matchInfo = {
         teams: (json.info.teams && json.info.teams.join(" vs ")) || "Team A vs Team B",
         venue: json.info.venue || "Unknown Venue",
         date: (json.info.dates && json.info.dates[0]) || "Unknown Date",
-        winner: (json.info.outcome && json.info.outcome.winner) || "N/A"
+        winner: (json.info.outcome && json.info.outcome.winner) || "N/A",
+        toss: json.info.toss ? `${json.info.toss.winner} won the toss and chose to ${json.info.toss.decision}` : "No toss info"
       };
-      const firstInnings = json.innings[0];
-      const deliveriesFlat = [];
-      for (var i = 0; i < firstInnings.overs.length; i++) {
-        var overObj = firstInnings.overs[i];
-        var overNum = overObj.over;
-        for (var j = 0; j < overObj.deliveries.length; j++) {
-          var delivery = overObj.deliveries[j];
-          var runs = (delivery.runs && delivery.runs.total) || 0;
-          var isWicket = !!(delivery.wickets && delivery.wickets.length);
-          var wicketKind = null;
-          var wicketPlayer = null;
-          var extras = (delivery.runs && delivery.runs.extras) || 0;
-          var extrasObj = {};
-          if (delivery.extras) {
-            if (delivery.extras.wides) extrasObj.wides = delivery.extras.wides;
-            if (delivery.extras.byes) extrasObj.byes = delivery.extras.byes;
-            if (delivery.extras.legbyes) extrasObj.legbyes = delivery.extras.legbyes;
+      const inningsData = [];
+      for (let innIdx = 0; innIdx < json.innings.length; innIdx++) {
+        const inn = json.innings[innIdx];
+        const team = inn.team;
+        const deliveriesFlat = [];
+        for (var i = 0; i < inn.overs.length; i++) {
+          var overObj = inn.overs[i];
+          var overNum = overObj.over;
+          for (var j = 0; j < overObj.deliveries.length; j++) {
+            var delivery = overObj.deliveries[j];
+            var runs = (delivery.runs && delivery.runs.total) || 0;
+            var isWicket = !!(delivery.wickets && delivery.wickets.length);
+            var wicketKind = null;
+            var wicketPlayer = null;
+            var extras = (delivery.runs && delivery.runs.extras) || 0;
+            var extrasObj = {};
+            if (delivery.extras) {
+              if (delivery.extras.wides) extrasObj.wides = delivery.extras.wides;
+              if (delivery.extras.byes) extrasObj.byes = delivery.extras.byes;
+              if (delivery.extras.legbyes) extrasObj.legbyes = delivery.extras.legbyes;
+            }
+            if (isWicket) {
+              var w = delivery.wickets[0];
+              wicketKind = w.kind;
+              wicketPlayer = w.player_out;
+            }
+            deliveriesFlat.push({
+              over: overNum,
+              ball: delivery.ball || ((deliveriesFlat.length % 6) + 1),
+              runs: runs,
+              wicket: isWicket,
+              wicketKind: wicketKind,
+              wicketPlayer: wicketPlayer,
+              extras: extras,
+              extrasObj: extrasObj,
+              striker: delivery.batter,
+              nonStriker: delivery.non_striker,
+              bowler: delivery.bowler
+            });
           }
-          if (isWicket) {
-            var w = delivery.wickets[0];
-            wicketKind = w.kind;
-            wicketPlayer = w.player_out;
-          }
-          deliveriesFlat.push({
-            over: overNum,
-            ball: delivery.ball || ((deliveriesFlat.length % 6) + 1),
-            runs: runs,
-            wicket: isWicket,
-            wicketKind: wicketKind,
-            wicketPlayer: wicketPlayer,
-            extras: extras,
-            extrasObj: extrasObj,
-            striker: delivery.batter,
-            nonStriker: delivery.non_striker,
-            bowler: delivery.bowler
-          });
         }
+        inningsData.push({ team, deliveries: deliveriesFlat });
       }
-      return { matchInfo: matchInfo, deliveries: deliveriesFlat, battingTeam: firstInnings.team };
+      // Determine target if second innings exists
+      let target = null;
+      if (inningsData.length === 2) {
+        const firstInningsScore = inningsData[0].deliveries.reduce((sum, d) => sum + d.runs, 0);
+        const firstInningsWickets = inningsData[0].deliveries.filter(d => d.wicket).length;
+        target = firstInningsScore + 1;
+      }
+      return { matchInfo, inningsData, target };
     };
 
     const computeStateUpTo = function(deliveries, maxIndex) {
@@ -209,7 +244,7 @@
         ballsCount++;
       }
       var oversDecimal = Math.floor(ballsCount / 6) + (ballsCount % 6) / 10;
-      return { totalRuns: totalRuns, wickets: wickets, ballsCount: ballsCount, overs: oversDecimal.toFixed(1) };
+      return { totalRuns, wickets, ballsCount, overs: oversDecimal.toFixed(1) };
     };
 
     const App = () => {
@@ -251,7 +286,7 @@
                   React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "2", d: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" })
                 ),
                 React.createElement('p', { className: "mb-2 text-sm text-gray-300" }, React.createElement('span', { className: "font-semibold" }, "Click to upload"), " Cricsheet JSON"),
-                React.createElement('p', { className: "text-xs text-gray-400" }, "Your IPL 2008 file is fully compatible! Realistic audio commentary.")
+                React.createElement('p', { className: "text-xs text-gray-400" }, "Full match (both innings) supported!")
               ),
               React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: handleFileUpload })
             ),
@@ -264,16 +299,18 @@
     };
 
     const MatchSimulator = function(props) {
-      var deliveries = props.matchData.deliveries;
-      var matchInfo = props.matchData.matchInfo;
-      var totalBalls = deliveries.length;
-
-      var [currentBallIdx, setCurrentBallIdx] = React.useState(-1);
-      var [isPlaying, setIsPlaying] = React.useState(false);
-      var [speed, setSpeed] = React.useState(1);
-      var [muteAudio, setMuteAudio] = React.useState(false);
-      var [commentaryLog, setCommentaryLog] = React.useState([]);
-      var [isSpeaking, setIsSpeaking] = React.useState(false);
+      const { inningsData, matchInfo, target: initialTarget } = props.matchData;
+      const [currentInningsIdx, setCurrentInningsIdx] = React.useState(0);
+      const [currentBallIdx, setCurrentBallIdx] = React.useState(-1);
+      const [isPlaying, setIsPlaying] = React.useState(false);
+      const [speed, setSpeed] = React.useState(1);
+      const [muteAudio, setMuteAudio] = React.useState(false);
+      const [commentaryLog, setCommentaryLog] = React.useState([]);
+      const [isSpeaking, setIsSpeaking] = React.useState(false);
+      const [target, setTarget] = React.useState(initialTarget);
+      const [firstInningsScore, setFirstInningsScore] = React.useState(null);
+      const [firstInningsWickets, setFirstInningsWickets] = React.useState(null);
+      const [firstInningsOvers, setFirstInningsOvers] = React.useState(null);
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -281,16 +318,39 @@
       var [isRecording, setIsRecording] = React.useState(false);
       var [videoBlobUrl, setVideoBlobUrl] = React.useState(null);
 
-      var matchState = React.useMemo(function() {
+      const currentInnings = inningsData[currentInningsIdx];
+      const deliveries = currentInnings.deliveries;
+      const totalBalls = deliveries.length;
+
+      const matchState = React.useMemo(function() {
         if (currentBallIdx < 0) return { totalRuns: 0, wickets: 0, ballsCount: 0, overs: "0.0" };
-        return computeStateUpTo(deliveries, currentBallIdx);
-      }, [currentBallIdx, deliveries]);
+        const state = computeStateUpTo(deliveries, currentBallIdx);
+        // If we are in second innings, also add target info
+        return { ...state, target: currentInningsIdx === 1 ? target : null };
+      }, [currentBallIdx, deliveries, currentInningsIdx, target]);
 
-      var currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalBalls) ? deliveries[currentBallIdx] : null;
+      const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalBalls) ? deliveries[currentBallIdx] : null;
 
-      var addCommentaryEntry = function(delivery, idx) {
-        var commentaryText = generateRealisticCommentary(delivery);
-        var ballDesc = "Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + commentaryText + (delivery.wicket ? " 🚨 WICKET!" : "");
+      // When second innings starts, set target
+      React.useEffect(() => {
+        if (currentInningsIdx === 1 && target === null) {
+          // Compute target from first innings
+          const firstDeliveries = inningsData[0].deliveries;
+          const firstTotal = firstDeliveries.reduce((sum, d) => sum + d.runs, 0);
+          const firstWickets = firstDeliveries.filter(d => d.wicket).length;
+          setTarget(firstTotal + 1);
+          setFirstInningsScore(firstTotal);
+          setFirstInningsWickets(firstWickets);
+          const oversCount = firstDeliveries.length;
+          const firstOvers = Math.floor(oversCount / 6) + (oversCount % 6) / 10;
+          setFirstInningsOvers(firstOvers.toFixed(1));
+        }
+      }, [currentInningsIdx, inningsData, target]);
+
+      const addCommentaryEntry = function(delivery, idx) {
+        // Pass current match state for target awareness
+        const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target, false);
+        const ballDesc = `Innings ${currentInningsIdx+1} • Over ${delivery.over}.${delivery.ball} • ${delivery.striker} • ${delivery.bowler} → ${commentaryText}${delivery.wicket ? " 🚨 WICKET!" : ""}`;
         setCommentaryLog(function(prev) {
           var newEntry = { id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket || false };
           return [newEntry].concat(prev).slice(0, 50);
@@ -298,11 +358,33 @@
         return commentaryText;
       };
 
-      var advanceToNextBall = React.useCallback(function() {
+      const advanceToNextBall = React.useCallback(function() {
         if (currentBallIdx + 1 >= totalBalls) {
-          setIsPlaying(false);
-          if (!muteAudio && window.speechSynthesis) {
-            speakWithCallback("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.", false, function() {});
+          // End of this innings
+          if (currentInningsIdx === 0) {
+            // First innings finished, move to second innings
+            const firstTotal = matchState.totalRuns;
+            const firstWickets = matchState.wickets;
+            setFirstInningsScore(firstTotal);
+            setFirstInningsWickets(firstWickets);
+            const oversCount = currentBallIdx + 1;
+            const firstOvers = Math.floor(oversCount / 6) + (oversCount % 6) / 10;
+            setFirstInningsOvers(firstOvers.toFixed(1));
+            setTarget(firstTotal + 1);
+            // Reset for second innings
+            setCurrentInningsIdx(1);
+            setCurrentBallIdx(-1);
+            setIsPlaying(false);
+            if (!muteAudio) {
+              speakWithCallback(`End of first innings. ${inningsData[0].team} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${firstTotal+1} runs to win.`, 0, function() {});
+            }
+          } else {
+            // Match finished
+            setIsPlaying(false);
+            if (!muteAudio) {
+              const result = matchState.totalRuns >= target ? "wins" : "loses";
+              speakWithCallback(`Match finished! ${currentInnings.team} ${result} by ${Math.abs(matchState.totalRuns - target)} runs.`, 0, function() {});
+            }
           }
           return;
         }
@@ -313,13 +395,15 @@
         if (!muteAudio) {
           var intro = nextDelivery.striker + " facing " + nextDelivery.bowler + ". ";
           var fullText = intro + commentaryText;
-          var excitement = (nextDelivery.runs === 4 || nextDelivery.runs === 6 || nextDelivery.wicket);
+          var excitementLevel = 0;
+          if (nextDelivery.runs === 4 || nextDelivery.runs === 6) excitementLevel = 1;
+          if (nextDelivery.wicket) excitementLevel = 2;
           setIsSpeaking(true);
-          speakWithCallback(fullText, excitement, function() {
+          speakWithCallback(fullText, excitementLevel, function() {
             setIsSpeaking(false);
           });
         }
-      }, [currentBallIdx, deliveries, totalBalls, matchState.totalRuns, matchState.wickets, muteAudio]);
+      }, [currentBallIdx, deliveries, totalBalls, currentInningsIdx, matchState.totalRuns, matchState.wickets, muteAudio, target, inningsData]);
 
       var manualNextBall = function() {
         if (isSpeaking && window.speechSynthesis) {
@@ -348,9 +432,14 @@
           try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
+        setCurrentInningsIdx(0);
         setCurrentBallIdx(-1);
         setCommentaryLog([]);
         setVideoBlobUrl(null);
+        setFirstInningsScore(null);
+        setFirstInningsWickets(null);
+        setFirstInningsOvers(null);
+        setTarget(initialTarget);
         if (mediaRecorderRef.current && isRecording) {
           mediaRecorderRef.current.stop();
           setIsRecording(false);
@@ -364,9 +453,9 @@
           var commentary = addCommentaryEntry(firstDelivery, 0);
           if (!muteAudio) {
             var intro = firstDelivery.striker + " facing " + firstDelivery.bowler + ". ";
-            var excitement = (firstDelivery.runs === 4 || firstDelivery.runs === 6 || firstDelivery.wicket);
+            var excitementLevel = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 1 : 0;
             setIsSpeaking(true);
-            speakWithCallback(intro + commentary, excitement, function() {
+            speakWithCallback(intro + commentary, excitementLevel, function() {
               setIsSpeaking(false);
             });
           }
@@ -376,6 +465,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
+      // Canvas drawing (unchanged)
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -389,46 +479,60 @@
         ctx.strokeStyle = '#2dd4bf';
         ctx.lineWidth = 3;
         ctx.strokeRect(5, 5, w-10, h-10);
-        ctx.font = 'bold 28px "Inter", sans-serif';
+        ctx.font = 'bold 24px "Inter", sans-serif';
         ctx.fillStyle = '#f0fdf4';
         ctx.fillText(matchInfo.teams, 30, 55);
-        ctx.font = '14px monospace';
+        ctx.font = '12px monospace';
         ctx.fillStyle = '#a3e9d6';
         ctx.fillText(matchInfo.venue + " • " + matchInfo.date, 30, 85);
-        ctx.fillStyle = '#000000aa';
-        ctx.fillRect(30, 110, w-60, 80);
-        ctx.font = 'bold 42px monospace';
+        ctx.font = '10px monospace';
         ctx.fillStyle = '#facc15';
-        ctx.fillText(matchState.totalRuns + "/" + matchState.wickets, 50, 170);
-        ctx.font = '24px monospace';
-        ctx.fillStyle = '#cbd5e1';
-        ctx.fillText("(" + matchState.overs + " overs)", 260, 165);
+        ctx.fillText("Toss: " + matchInfo.toss, 30, 110);
+
+        // Scoreboard
+        ctx.fillStyle = '#000000aa';
+        ctx.fillRect(30, 125, w-60, 80);
+        ctx.font = 'bold 32px monospace';
+        ctx.fillStyle = '#facc15';
+        let scoreText = "";
+        if (currentInningsIdx === 0) {
+          scoreText = `${matchState.totalRuns}/${matchState.wickets} (${matchState.overs})`;
+        } else {
+          scoreText = `${matchState.totalRuns}/${matchState.wickets} (${matchState.overs}) • Target: ${target}`;
+        }
+        ctx.fillText(scoreText, 50, 180);
+        // First innings summary
+        if (firstInningsScore !== null) {
+          ctx.font = '14px monospace';
+          ctx.fillStyle = '#cbd5e1';
+          ctx.fillText(`1st innings: ${firstInningsScore}/${firstInningsWickets} (${firstInningsOvers})`, 50, 215);
+        }
         if (currentDelivery) {
-          ctx.font = 'bold 18px "Inter"';
+          ctx.font = 'bold 16px "Inter"';
           ctx.fillStyle = '#d9f99d';
-          ctx.fillText("🏏 STRIKER: " + currentDelivery.striker, 50, 215);
+          ctx.fillText("🏏 STRIKER: " + currentDelivery.striker, 50, 250);
           ctx.fillStyle = '#c4f0e6';
-          ctx.fillText("🔄 NON-STRIKER: " + currentDelivery.nonStriker, 50, 245);
+          ctx.fillText("🔄 NON-STRIKER: " + currentDelivery.nonStriker, 50, 280);
           ctx.fillStyle = '#fde047';
-          ctx.fillText("⚡ BOWLER: " + currentDelivery.bowler, 50, 275);
+          ctx.fillText("⚡ BOWLER: " + currentDelivery.bowler, 50, 310);
         } else {
           ctx.fillStyle = '#aaa';
-          ctx.fillText("⚡ Awaiting start...", 50, 240);
+          ctx.fillText("⚡ Awaiting start...", 50, 250);
         }
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
         ctx.fillStyle = '#1e2a2acc';
         ctx.fillRect(30, h-130, w-60, 90);
-        ctx.font = 'italic 16px "JetBrains Mono"';
+        ctx.font = 'italic 14px "JetBrains Mono"';
         ctx.fillStyle = '#e2e8f0';
         ctx.fillText("🎙️ LATEST BALL:", 40, h-100);
-        ctx.font = '14px "JetBrains Mono"';
+        ctx.font = '12px "JetBrains Mono"';
         ctx.fillStyle = '#f1f5f9';
         var wrapped = lastComment.length > 70 ? lastComment.slice(0,70)+"..." : lastComment;
         ctx.fillText(wrapped, 40, h-70);
-        ctx.font = '10px monospace';
+        ctx.font = '9px monospace';
         ctx.fillStyle = '#4b5563';
         ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
-      }, [matchState, currentDelivery, commentaryLog, matchInfo]);
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsScore, firstInningsWickets, firstInningsOvers]);
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
@@ -483,11 +587,11 @@
                 React.createElement('div', null,
                   React.createElement('span', { className: "text-4xl font-black text-teal-300" }, matchState.totalRuns),
                   React.createElement('span', { className: "text-2xl font-bold text-gray-300" }, "/", matchState.wickets),
-                  React.createElement('div', { className: "text-gray-400 text-sm mt-1" }, "Overs: ", matchState.overs, " (", matchState.ballsCount, " balls)")
+                  React.createElement('div', { className: "text-gray-400 text-sm mt-1" }, "Innings ", currentInningsIdx+1, " • Overs: ", matchState.overs, " (", matchState.ballsCount, " balls)")
                 ),
                 React.createElement('div', { className: "bg-teal-900/50 px-4 py-2 rounded-xl text-right" },
-                  React.createElement('div', { className: "text-xs text-teal-300" }, "REQUIRED / CRR"),
-                  React.createElement('div', { className: "text-sm font-mono" }, "— Simulating —")
+                  React.createElement('div', { className: "text-xs text-teal-300" }, currentInningsIdx === 1 ? `Target: ${target}` : "1st Innings"),
+                  React.createElement('div', { className: "text-sm font-mono" }, currentInningsIdx === 1 ? `${matchState.totalRuns} / ${target-1}` : "")
                 )
               ),
               React.createElement('div', { className: "w-full bg-gray-700 h-2 rounded-full mt-4" },
@@ -501,7 +605,7 @@
               )
             ),
             React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
-              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: currentBallIdx+1 >= totalBalls, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
+              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: currentBallIdx+1 >= totalBalls && currentInningsIdx === 1, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
                 : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
               React.createElement('button', { onClick: manualNextBall, disabled: currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
               React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
@@ -538,8 +642,8 @@
             React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. After download, upload manually to YouTube.")
           )
         ),
-        (currentBallIdx+1 >= totalBalls && currentBallIdx !== -1) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center animate-pulse" },
-          "🏆 MATCH FINISHED! Final Score: ", matchState.totalRuns, "/", matchState.wickets, " in ", matchState.overs, " overs 🏆"
+        (currentBallIdx+1 >= totalBalls && currentInningsIdx === 1 && currentBallIdx !== -1) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center animate-pulse" },
+          "🏆 MATCH FINISHED! Final Score: ", matchState.totalRuns, "/", matchState.wickets, " • Target: ", target, " 🏆"
         )
       );
     };
