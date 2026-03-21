@@ -43,9 +43,9 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
-    // Enhanced realistic commentary with emotion (unchanged)
+    // Enhanced realistic commentary
     // --------------------------------------------------------------
-    const generateRealisticCommentary = (delivery, inningsIdx, target, isWinningRun = false) => {
+    const generateRealisticCommentary = (delivery, inningsIdx, target) => {
       const runs = delivery.runs;
       const isWicket = delivery.wicket;
       const wicketKind = delivery.wicketKind;
@@ -441,16 +441,18 @@
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
       const addCommentaryEntry = function(delivery, idx) {
-        const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target, false);
+        const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target);
         const ballDesc = `Innings ${currentInningsIdx+1} • Over ${delivery.over}.${delivery.ball} • ${delivery.striker} • ${delivery.bowler} → ${commentaryText}${delivery.wicket ? " 🚨 WICKET!" : ""}`;
         setCommentaryLog(prev => [{ id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket }, ...prev].slice(0, 50));
         return commentaryText;
       };
 
       const advanceToNextBall = React.useCallback(function() {
+        // If we're already at or beyond the last ball, do nothing
         if (currentBallIdx + 1 >= totalBalls) {
-          if (currentInningsIdx === 0) {
-            // End of first innings
+          // End of this innings
+          if (currentInningsIdx === 0 && currentBallIdx !== -1) {
+            // First innings finished
             setIsPlaying(false);
             const firstTotal = matchState.totalRuns;
             const firstWickets = matchState.wickets;
@@ -467,8 +469,8 @@
             if (!muteAudio) {
               speakWithCallback(`End of first innings. ${currentInnings.team} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${firstTotal+1} runs to win. Press start to begin the chase.`, 0, function() {});
             }
-          } else {
-            // Match finished
+          } else if (currentInningsIdx === 1) {
+            // Second innings finished
             setIsPlaying(false);
             if (!muteAudio) {
               const result = matchState.totalRuns >= target ? "wins" : "loses";
@@ -477,6 +479,7 @@
           }
           return;
         }
+
         var nextIdx = currentBallIdx + 1;
         var nextDelivery = deliveries[nextIdx];
         setCurrentBallIdx(nextIdx);
@@ -497,6 +500,7 @@
           try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
+        // Only advance if not at end of innings
         if (currentBallIdx + 1 < totalBalls) {
           advanceToNextBall();
         }
@@ -504,14 +508,20 @@
 
       React.useEffect(function() {
         if (!isPlaying) return;
+        // Don't auto‑play if the match is over (second innings finished)
+        if (currentInningsIdx === 1 && currentBallIdx + 1 >= totalBalls) {
+          setIsPlaying(false);
+          return;
+        }
         var intervalTime = 100 / speed;
         var timer = setInterval(function() {
+          // Only auto‑advance if not speaking and we haven't reached the end of the innings
           if (!isSpeaking && currentBallIdx + 1 < totalBalls) {
             advanceToNextBall();
           }
         }, intervalTime);
         return function() { clearInterval(timer); };
-      }, [isPlaying, speed, isSpeaking, currentBallIdx, advanceToNextBall, totalBalls]);
+      }, [isPlaying, speed, isSpeaking, currentBallIdx, advanceToNextBall, totalBalls, currentInningsIdx]);
 
       var resetSimulation = function() {
         setIsPlaying(false);
@@ -532,6 +542,7 @@
       };
 
       var startMatch = function() {
+        // If we are at the start of an innings (currentBallIdx === -1), play the first ball
         if (currentBallIdx === -1) {
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
@@ -548,7 +559,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Canvas drawing (unchanged)
+      // Canvas drawing
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -645,7 +656,9 @@
         }
       };
 
-      var progressPercent = (currentBallIdx >= 0) ? ((currentBallIdx+1)/totalBalls)*100 : 0;
+      var progressPercent = (currentBallIdx >= 0 && totalBalls > 0) ? ((currentBallIdx+1)/totalBalls)*100 : 0;
+      const isMatchOver = (currentInningsIdx === 1 && currentBallIdx + 1 >= totalBalls && currentBallIdx !== -1);
+      const startDisabled = isMatchOver;
 
       return React.createElement('div', { className: "space-y-6" },
         React.createElement('div', { className: "flex flex-wrap justify-between items-center gap-3 bg-gray-800/50 p-4 rounded-2xl" },
@@ -683,7 +696,7 @@
               )
             ),
             React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
-              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: (currentInningsIdx === 1 && currentBallIdx+1 >= totalBalls) || (currentInningsIdx === 0 && currentBallIdx+1 >= totalBalls && currentInningsIdx === 0 && currentBallIdx !== -1), className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
+              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: startDisabled, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
                 : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
               React.createElement('button', { onClick: manualNextBall, disabled: currentBallIdx+1 >= totalBalls, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
               React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
