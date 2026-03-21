@@ -40,7 +40,7 @@
   <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
 
   <script type="text/babel">
-    // Enhanced realistic commentary
+    // Enhanced realistic commentary – safe syntax (no optional chaining)
     const generateRealisticCommentary = (delivery) => {
       const runs = delivery.runs;
       const isWicket = delivery.wicket;
@@ -76,9 +76,10 @@
         return `${striker} is out! ${phrase}`;
       }
       if (extras > 0) {
-        if (delivery.extrasObj?.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
-        if (delivery.extrasObj?.byes) return `Byes! ${extras} runs. The keeper missed it.`;
-        if (delivery.extrasObj?.legbyes) return `Leg‑byes! ${extras} runs.`;
+        // Safe check for extrasObj
+        if (delivery.extrasObj && delivery.extrasObj.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
+        if (delivery.extrasObj && delivery.extrasObj.byes) return `Byes! ${extras} runs. The keeper missed it.`;
+        if (delivery.extrasObj && delivery.extrasObj.legbyes) return `Leg‑byes! ${extras} runs.`;
         return `${extras} extras.`;
       }
       if (runs === 0) {
@@ -92,7 +93,7 @@
       return `${runs} runs taken.`;
     };
 
-    // Voice selection (keeps best voice)
+    // Voice selection
     let selectedVoice = null;
     const getBestVoice = () => {
       return new Promise((resolve) => {
@@ -112,7 +113,7 @@
       });
     };
 
-    // Speech function with on-end callback
+    // Speech with callback – robust
     let currentUtterance = null;
     const speakWithCallback = async (text, excitement, onEnd) => {
       if (!window.speechSynthesis) {
@@ -120,7 +121,7 @@
         return;
       }
       if (currentUtterance) {
-        window.speechSynthesis.cancel();
+        try { window.speechSynthesis.cancel(); } catch(e) {}
         currentUtterance = null;
       }
       if (!selectedVoice) {
@@ -140,10 +141,14 @@
         if (onEnd) onEnd();
       };
       currentUtterance = utterance;
-      window.speechSynthesis.speak(utterance);
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch(e) {
+        if (onEnd) onEnd();
+      }
     };
 
-    // Parser for Cricsheet JSON (same as before)
+    // Parser for Cricsheet JSON
     const parseCricsheetJSON = (json) => {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length === 0) {
         throw new Error("Invalid Cricsheet format: missing 'info' or 'innings' array");
@@ -293,10 +298,8 @@
         return commentaryText;
       };
 
-      // Core function: advance to next ball, play audio, and set speaking flag
       var advanceToNextBall = React.useCallback(function() {
         if (currentBallIdx + 1 >= totalBalls) {
-          // Match finished
           setIsPlaying(false);
           if (!muteAudio && window.speechSynthesis) {
             speakWithCallback("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.", false, function() {});
@@ -318,10 +321,9 @@
         }
       }, [currentBallIdx, deliveries, totalBalls, matchState.totalRuns, matchState.wickets, muteAudio]);
 
-      // Manual next ball (cancel any ongoing speech and move immediately)
       var manualNextBall = function() {
         if (isSpeaking && window.speechSynthesis) {
-          window.speechSynthesis.cancel();
+          try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
         if (currentBallIdx + 1 < totalBalls) {
@@ -329,10 +331,9 @@
         }
       };
 
-      // Auto‑play interval: calls advanceToNextBall when not speaking and auto‑play on
       React.useEffect(function() {
         if (!isPlaying) return;
-        var intervalTime = 100 / speed; // very short interval – checks frequently
+        var intervalTime = 100 / speed;
         var timer = setInterval(function() {
           if (!isSpeaking && currentBallIdx + 1 < totalBalls) {
             advanceToNextBall();
@@ -344,7 +345,7 @@
       var resetSimulation = function() {
         setIsPlaying(false);
         if (isSpeaking && window.speechSynthesis) {
-          window.speechSynthesis.cancel();
+          try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
         setCurrentBallIdx(-1);
@@ -358,7 +359,6 @@
 
       var startMatch = function() {
         if (currentBallIdx === -1) {
-          // Start from first ball
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
           var commentary = addCommentaryEntry(firstDelivery, 0);
@@ -374,11 +374,8 @@
         setIsPlaying(true);
       };
 
-      var pauseMatch = function() {
-        setIsPlaying(false);
-      };
+      var pauseMatch = function() { setIsPlaying(false); };
 
-      // Canvas drawing (unchanged)
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
