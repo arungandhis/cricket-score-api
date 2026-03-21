@@ -283,6 +283,51 @@
       return { totalRuns, wickets, legalBalls, overs: oversDecimal.toFixed(1) };
     };
 
+    // Compute cumulative batting and bowling stats up to a given ball index
+    const computeCumulativeStats = (deliveries, maxIndex) => {
+      const battingStats = {};
+      const bowlingStats = {};
+      for (var i = 0; i <= maxIndex; i++) {
+        const d = deliveries[i];
+        const striker = d.striker;
+        const bowler = d.bowler;
+        const runs = d.runs;
+        const isWicket = d.wicket;
+        const extrasObj = d.extrasObj;
+
+        // Batting
+        if (!battingStats[striker]) {
+          battingStats[striker] = { runs: 0, balls: 0, fours: 0, sixes: 0 };
+        }
+        if (!extrasObj.wides && !extrasObj.noballs) {
+          battingStats[striker].balls++;
+        }
+        battingStats[striker].runs += runs;
+        if (runs === 4) battingStats[striker].fours++;
+        if (runs === 6) battingStats[striker].sixes++;
+
+        // Bowling
+        if (!bowlingStats[bowler]) {
+          bowlingStats[bowler] = { overs: 0, runs: 0, wickets: 0, legalBalls: 0 };
+        }
+        if (!extrasObj.wides) {
+          bowlingStats[bowler].legalBalls++;
+        }
+        bowlingStats[bowler].runs += runs;
+        if (isWicket) {
+          bowlingStats[bowler].wickets++;
+        }
+      }
+      // Convert bowling legal balls to overs
+      for (let bowler in bowlingStats) {
+        let balls = bowlingStats[bowler].legalBalls;
+        let overs = Math.floor(balls / 6) + (balls % 6) / 10;
+        bowlingStats[bowler].overs = overs.toFixed(1);
+        delete bowlingStats[bowler].legalBalls;
+      }
+      return { battingStats, bowlingStats };
+    };
+
     // Helper to get top scorer from batting stats
     const getTopScorer = (battingStats) => {
       let best = { name: null, runs: -1 };
@@ -430,7 +475,7 @@
       const [matchResult, setMatchResult] = React.useState(null);
       const startGuardRef = React.useRef(false);
       const introPlayedRef = React.useRef(false);
-      const firstInningsSummaryTriggeredRef = React.useRef(false); // prevent duplicate summaries
+      const firstInningsSummaryTriggeredRef = React.useRef(false);
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -448,6 +493,12 @@
       }, [currentBallIdx, deliveries]);
 
       const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
+
+      // Compute cumulative stats up to currentBallIdx for live tables
+      const cumulativeStats = React.useMemo(() => {
+        if (currentBallIdx < 0) return { battingStats: {}, bowlingStats: {} };
+        return computeCumulativeStats(deliveries, currentBallIdx);
+      }, [currentBallIdx, deliveries]);
 
       // Innings ends if either:
       // - maximum overs reached (legalBalls >= maxOvers * 6)
@@ -557,6 +608,7 @@
             const firstWickets = matchState.wickets;
             const firstOvers = matchState.overs;
             const firstTeam = currentInnings.team;
+            // Use full innings stats for summary (the pre‑computed ones are the complete innings)
             const firstBattingStats = currentInnings.battingStats;
             const firstBowlingStats = currentInnings.bowlingStats;
             const targetScore = firstTotal + 1;
@@ -865,7 +917,8 @@
                 React.createElement('span', { className: "commentary-text text-gray-200" }, c.text)
               )))
             ),
-            React.createElement(StatsPanel, { battingStats: currentInnings.battingStats, bowlingStats: currentInnings.bowlingStats, title: `Current Innings: ${currentInnings.team}` }),
+            // Use cumulative stats for live updates
+            React.createElement(StatsPanel, { battingStats: cumulativeStats.battingStats, bowlingStats: cumulativeStats.bowlingStats, title: `Current Innings: ${currentInnings.team}` }),
             firstInningsStats && React.createElement(StatsPanel, { battingStats: firstInningsStats.battingStats, bowlingStats: firstInningsStats.bowlingStats, title: `First Innings: ${firstInningsStats.team}` })
           ),
           React.createElement('div', { className: "bg-gray-800/40 rounded-2xl p-4 backdrop-blur-sm" },
