@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Full Match Simulator with Commentary</title>
+  <title>Cricket Live Studio – Full Match Simulator</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -427,9 +427,10 @@
       const [isSpeaking, setIsSpeaking] = React.useState(false);
       const [target, setTarget] = React.useState(initialTarget);
       const [firstInningsStats, setFirstInningsStats] = React.useState(null);
-      const [matchResult, setMatchResult] = React.useState(null); // store final result text
+      const [matchResult, setMatchResult] = React.useState(null);
       const startGuardRef = React.useRef(false);
-      const introPlayedRef = React.useRef(false); // ensure intro only once
+      const introPlayedRef = React.useRef(false);
+      const summaryTriggeredRef = React.useRef(false); // ensure summary only once
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -448,9 +449,12 @@
 
       const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
 
-      const isInningsFinished = matchState.legalBalls >= maxOvers * 6;
+      // Innings ends if either:
+      // - maximum overs reached (legalBalls >= maxOvers * 6)
+      // - all 10 wickets taken
+      const isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
 
-      // Functions to add summary entries
+      // Helper to add summary entries
       const addSummaryEntry = (text, isImportant = true) => {
         setCommentaryLog(prev => [{
           id: Date.now() + Math.random(),
@@ -465,7 +469,7 @@
       const playMatchIntro = () => {
         if (introPlayedRef.current) return;
         introPlayedRef.current = true;
-        const introText = `Welcome to ${matchInfo.venue} for this exciting T20 match between ${matchInfo.team1} and ${matchInfo.team2}. ${matchInfo.toss}. The first innings is about to begin. We're set for a thrilling contest.`;
+        const introText = `Welcome to ${matchInfo.venue} for this exciting match between ${matchInfo.team1} and ${matchInfo.team2}. ${matchInfo.toss}. The first innings is about to begin. We're set for a thrilling contest.`;
         addSummaryEntry(introText);
         if (!muteAudio) {
           speakWithCallback(introText, 0, () => {});
@@ -515,6 +519,7 @@
         }
       };
 
+      // Store first innings stats after first innings ends
       React.useEffect(() => {
         if (currentInningsIdx === 1 && firstInningsStats === null) {
           const firstInnings = inningsData[0];
@@ -531,14 +536,15 @@
         }
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
-      // After first innings ends, show summary (only once)
+      // Trigger first innings summary when the first innings finishes and stats are available
       React.useEffect(() => {
-        if (currentInningsIdx === 0 && isInningsFinished && firstInningsStats) {
+        if (currentInningsIdx === 0 && isInningsFinished && firstInningsStats && !summaryTriggeredRef.current) {
+          summaryTriggeredRef.current = true;
           showFirstInningsSummary();
         }
       }, [currentInningsIdx, isInningsFinished, firstInningsStats]);
 
-      // After match ends, show full summary
+      // After match ends, show full summary (reset trigger flag on reset)
       React.useEffect(() => {
         if (currentInningsIdx === 1 && isInningsFinished && firstInningsStats) {
           showFullMatchSummary();
@@ -553,8 +559,10 @@
       };
 
       const advanceToNextBall = React.useCallback(function() {
+        // If innings finished (overs or all out), end it
         if (isInningsFinished) {
           if (currentInningsIdx === 0) {
+            // First innings finished
             setIsPlaying(false);
             const firstTotal = matchState.totalRuns;
             const firstWickets = matchState.wickets;
@@ -568,10 +576,12 @@
             setTarget(firstTotal + 1);
             setCurrentInningsIdx(1);
             setCurrentBallIdx(-1);
+            summaryTriggeredRef.current = false; // reset for second innings summary
             if (!muteAudio) {
               speakWithCallback(`End of first innings. ${currentInnings.team} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${firstTotal+1} runs to win. Press start to begin the chase.`, 0, function() {});
             }
           } else {
+            // Second innings finished
             setIsPlaying(false);
             if (!muteAudio) {
               const result = matchState.totalRuns >= target ? "wins" : "loses";
@@ -630,6 +640,7 @@
         }
         startGuardRef.current = false;
         introPlayedRef.current = false;
+        summaryTriggeredRef.current = false;
         setCurrentInningsIdx(0);
         setCurrentBallIdx(-1);
         setCommentaryLog([]);
@@ -666,6 +677,7 @@
           setTarget(firstTotal + 1);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
+          summaryTriggeredRef.current = false;
           setTimeout(() => { startMatch(); }, 50);
           return;
         }
@@ -686,7 +698,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Canvas drawing
+      // Canvas drawing (unchanged)
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
