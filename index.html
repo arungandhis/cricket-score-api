@@ -45,6 +45,17 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
+    // Helper: get last name (remove initials and dots)
+    // --------------------------------------------------------------
+    const getLastName = (fullName) => {
+      if (!fullName) return "player";
+      // Split by space or dot and take the last segment
+      const parts = fullName.split(/[\s.]+/);
+      const lastName = parts[parts.length - 1];
+      return lastName || fullName;
+    };
+
+    // --------------------------------------------------------------
     // Realistic commentary generator (unchanged)
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
@@ -79,10 +90,10 @@
 
       if (isWicket) {
         let phrase = wicketPhrases[wicketKind] || "Wicket! The batsman has to go!";
-        return `${striker} is out! ${phrase}`;
+        return `${getLastName(striker)} is out! ${phrase}`;
       }
       if (extras > 0) {
-        if (delivery.extrasObj && delivery.extrasObj.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
+        if (delivery.extrasObj && delivery.extrasObj.wides) return `Wide! ${extras} run added. ${getLastName(bowler)} needs to get his line right.`;
         if (delivery.extrasObj && delivery.extrasObj.byes) return `Byes! ${extras} runs. The keeper missed it.`;
         if (delivery.extrasObj && delivery.extrasObj.legbyes) return `Leg‑byes! ${extras} runs.`;
         return `${extras} extras.`;
@@ -398,13 +409,13 @@
 
     const StatsPanel = ({ battingStats, bowlingStats, title }) => {
       const battingRows = Object.entries(battingStats).map(([name, stats]) => ({
-        name,
+        name: getLastName(name), // Show last name in table too (optional)
         ...stats,
         sr: stats.runs / stats.balls * 100 || 0
       })).sort((a,b) => b.runs - a.runs);
 
       const bowlingRows = Object.entries(bowlingStats).map(([name, stats]) => ({
-        name,
+        name: getLastName(name),
         ...stats,
         economy: stats.runs / (parseFloat(stats.overs) || 1)
       })).sort((a,b) => a.runs - b.runs);
@@ -516,7 +527,7 @@
         }, ...prev].slice(0, 50));
       };
 
-      // Pre‑match intro
+      // Pre‑match intro (uses team names only)
       const playMatchIntro = () => {
         if (introPlayedRef.current) return;
         introPlayedRef.current = true;
@@ -527,13 +538,13 @@
         }
       };
 
-      // First innings summary – now called directly
+      // First innings summary (uses last names in audio)
       const showFirstInningsSummary = (inningTeam, total, wickets, overs, battingStats, bowlingStats, targetScore) => {
         const topScorer = getTopScorer(battingStats);
         const bestBowler = getBestBowler(bowlingStats);
         let summary = `End of first innings. ${inningTeam} scored ${total}/${wickets} in ${overs} overs. `;
-        if (topScorer.name) summary += `Top scorer: ${topScorer.name} with ${topScorer.runs} runs off ${topScorer.balls} balls (${topScorer.fours} fours, ${topScorer.sixes} sixes). `;
-        if (bestBowler.name) summary += `Best bowler: ${bestBowler.name} with ${bestBowler.wickets} wickets for ${bestBowler.runs} runs. `;
+        if (topScorer.name) summary += `Top scorer: ${getLastName(topScorer.name)} with ${topScorer.runs} runs off ${topScorer.balls} balls (${topScorer.fours} fours, ${topScorer.sixes} sixes). `;
+        if (bestBowler.name) summary += `Best bowler: ${getLastName(bestBowler.name)} with ${bestBowler.wickets} wickets for ${bestBowler.runs} runs. `;
         summary += `${matchInfo.team2} needs ${targetScore} runs to win.`;
         addSummaryEntry(summary);
         if (!muteAudio) {
@@ -541,7 +552,7 @@
         }
       };
 
-      // Full match summary (unchanged)
+      // Full match summary (uses last names in audio)
       const showFullMatchSummary = () => {
         if (currentInningsIdx !== 1 || !isInningsFinished) return;
         const secondInnings = currentInnings;
@@ -555,12 +566,12 @@
         const secondTopScorer = getTopScorer(secondInnings.battingStats);
         const secondBestBowler = getBestBowler(secondInnings.bowlingStats);
         resultText += `${firstInningsStats.team} scored ${firstInningsStats.total}/${firstInningsStats.wickets}. `;
-        if (firstTopScorer.name) resultText += `Top scorer: ${firstTopScorer.name} (${firstTopScorer.runs}). `;
-        if (firstBestBowler.name) resultText += `Best bowler: ${firstBestBowler.name} (${firstBestBowler.wickets} wickets). `;
+        if (firstTopScorer.name) resultText += `Top scorer: ${getLastName(firstTopScorer.name)} (${firstTopScorer.runs}). `;
+        if (firstBestBowler.name) resultText += `Best bowler: ${getLastName(firstBestBowler.name)} (${firstBestBowler.wickets} wickets). `;
         resultText += `${matchInfo.team2} scored ${secondTotal}/${secondWickets}. `;
-        if (secondTopScorer.name) resultText += `Top scorer: ${secondTopScorer.name} (${secondTopScorer.runs}). `;
-        if (secondBestBowler.name) resultText += `Best bowler: ${secondBestBowler.name} (${secondBestBowler.wickets} wickets). `;
-        resultText += `Player of the match: ${secondTopScorer.runs > firstTopScorer.runs ? secondTopScorer.name : firstTopScorer.name} for their outstanding performance.`;
+        if (secondTopScorer.name) resultText += `Top scorer: ${getLastName(secondTopScorer.name)} (${secondTopScorer.runs}). `;
+        if (secondBestBowler.name) resultText += `Best bowler: ${getLastName(secondBestBowler.name)} (${secondBestBowler.wickets} wickets). `;
+        resultText += `Player of the match: ${secondTopScorer.runs > firstTopScorer.runs ? getLastName(secondTopScorer.name) : getLastName(firstTopScorer.name)} for their outstanding performance.`;
         setMatchResult(resultText);
         addSummaryEntry(resultText);
         if (!muteAudio) {
@@ -608,7 +619,6 @@
             const firstWickets = matchState.wickets;
             const firstOvers = matchState.overs;
             const firstTeam = currentInnings.team;
-            // Use full innings stats for summary (the pre‑computed ones are the complete innings)
             const firstBattingStats = currentInnings.battingStats;
             const firstBowlingStats = currentInnings.bowlingStats;
             const targetScore = firstTotal + 1;
@@ -650,7 +660,8 @@
           setCurrentBallIdx(nextIdx);
           var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
           if (!muteAudio) {
-            var intro = nextDelivery.striker + " facing " + nextDelivery.bowler + ". ";
+            // Use last names for audio
+            var intro = `${getLastName(nextDelivery.striker)} facing ${getLastName(nextDelivery.bowler)}. `;
             var fullText = intro + commentaryText;
             var excitementLevel = 0;
             if (nextDelivery.runs === 4 || nextDelivery.runs === 6) excitementLevel = 1;
@@ -751,7 +762,7 @@
           setCurrentBallIdx(0);
           var commentary = addCommentaryEntry(firstDelivery, 0);
           if (!muteAudio) {
-            var intro = firstDelivery.striker + " facing " + firstDelivery.bowler + ". ";
+            var intro = `${getLastName(firstDelivery.striker)} facing ${getLastName(firstDelivery.bowler)}. `;
             var excitementLevel = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 1 : 0;
             setIsSpeaking(true);
             speakWithCallback(intro + commentary, excitementLevel, function() { setIsSpeaking(false); });
@@ -799,11 +810,11 @@
         if (currentDelivery) {
           ctx.font = 'bold 16px "Inter"';
           ctx.fillStyle = '#d9f99d';
-          ctx.fillText("🏏 STRIKER: " + currentDelivery.striker, 50, 250);
+          ctx.fillText("🏏 STRIKER: " + getLastName(currentDelivery.striker), 50, 250);
           ctx.fillStyle = '#c4f0e6';
-          ctx.fillText("🔄 NON-STRIKER: " + currentDelivery.nonStriker, 50, 280);
+          ctx.fillText("🔄 NON-STRIKER: " + getLastName(currentDelivery.nonStriker), 50, 280);
           ctx.fillStyle = '#fde047';
-          ctx.fillText("⚡ BOWLER: " + currentDelivery.bowler, 50, 310);
+          ctx.fillText("⚡ BOWLER: " + getLastName(currentDelivery.bowler), 50, 310);
         } else {
           ctx.fillStyle = '#aaa';
           ctx.fillText("⚡ Awaiting start...", 50, 250);
@@ -892,9 +903,9 @@
                 React.createElement('div', { className: "bg-teal-400 h-2 rounded-full transition-all duration-300", style: { width: progressPercent + "%" } })
               ),
               currentDelivery && React.createElement('div', { className: "grid grid-cols-2 gap-4 mt-5 text-sm" },
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery.striker)),
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Non-striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery.nonStriker)),
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Bowler:"), " ", React.createElement('span', { className: "font-bold text-emerald-300" }, currentDelivery.bowler)),
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, getLastName(currentDelivery.striker))),
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Non-striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, getLastName(currentDelivery.nonStriker))),
+                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Bowler:"), " ", React.createElement('span', { className: "font-bold text-emerald-300" }, getLastName(currentDelivery.bowler))),
                 React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Last Ball:"), " ", React.createElement('span', { className: "font-mono" }, currentDelivery.runs, " runs", currentDelivery.wicket ? " ❌ Wicket" : ""))
               )
             ),
@@ -917,7 +928,6 @@
                 React.createElement('span', { className: "commentary-text text-gray-200" }, c.text)
               )))
             ),
-            // Use cumulative stats for live updates
             React.createElement(StatsPanel, { battingStats: cumulativeStats.battingStats, bowlingStats: cumulativeStats.bowlingStats, title: `Current Innings: ${currentInnings.team}` }),
             firstInningsStats && React.createElement(StatsPanel, { battingStats: firstInningsStats.battingStats, bowlingStats: firstInningsStats.bowlingStats, title: `First Innings: ${firstInningsStats.team}` })
           ),
