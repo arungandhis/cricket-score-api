@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Full Match Simulator</title>
+  <title>Cricket Live Studio – Full Match Simulator with Commentary</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -13,6 +13,8 @@
     .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; }
     .stats-table { overflow-x: auto; max-width: 100%; }
     .stats-table table { min-width: 500px; }
+    .result-banner { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
   </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
@@ -43,7 +45,7 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
-    // Realistic commentary generator
+    // Realistic commentary generator (unchanged)
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
       const runs = delivery.runs;
@@ -166,13 +168,15 @@
       }
     };
 
-    // Parser that also extracts maximum overs
+    // Parser that also extracts maximum overs and player names for summaries
     const parseCricsheetJSON = (json) => {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
         throw new Error("Invalid Cricsheet format: need two innings");
       }
       const matchInfo = {
         teams: (json.info.teams && json.info.teams.join(" vs ")) || "Team A vs Team B",
+        team1: json.info.teams ? json.info.teams[0] : "Team A",
+        team2: json.info.teams ? json.info.teams[1] : "Team B",
         venue: json.info.venue || "Unknown Venue",
         date: (json.info.dates && json.info.dates[0]) || "Unknown Date",
         winner: (json.info.outcome && json.info.outcome.winner) || "N/A",
@@ -214,7 +218,6 @@
             if (!battingStats[striker]) {
               battingStats[striker] = { runs: 0, balls: 0, fours: 0, sixes: 0 };
             }
-            // Only count legal balls (no wides, no‑balls) for batting balls faced
             if (!extrasObj.wides && !extrasObj.noballs) {
               battingStats[striker].balls++;
             }
@@ -251,7 +254,6 @@
           }
         }
 
-        // Convert bowling legal balls to overs
         for (let bowler in bowlingStats) {
           let balls = bowlingStats[bowler].legalBalls;
           let overs = Math.floor(balls / 6) + (balls % 6) / 10;
@@ -275,11 +277,27 @@
         var d = deliveries[i];
         totalRuns += d.runs;
         if (d.wicket) wickets++;
-        // Count legal balls (not a wide)
         if (!d.extrasObj.wides) legalBalls++;
       }
       var oversDecimal = Math.floor(legalBalls / 6) + (legalBalls % 6) / 10;
       return { totalRuns, wickets, legalBalls, overs: oversDecimal.toFixed(1) };
+    };
+
+    // Helper to get top scorer from batting stats
+    const getTopScorer = (battingStats) => {
+      let best = { name: null, runs: -1 };
+      for (const [name, stats] of Object.entries(battingStats)) {
+        if (stats.runs > best.runs) best = { name, runs: stats.runs, balls: stats.balls, fours: stats.fours, sixes: stats.sixes };
+      }
+      return best;
+    };
+
+    const getBestBowler = (bowlingStats) => {
+      let best = { name: null, wickets: -1 };
+      for (const [name, stats] of Object.entries(bowlingStats)) {
+        if (stats.wickets > best.wickets) best = { name, wickets: stats.wickets, runs: stats.runs, overs: stats.overs };
+      }
+      return best;
     };
 
     const App = () => {
@@ -409,7 +427,9 @@
       const [isSpeaking, setIsSpeaking] = React.useState(false);
       const [target, setTarget] = React.useState(initialTarget);
       const [firstInningsStats, setFirstInningsStats] = React.useState(null);
-      const startGuardRef = React.useRef(false); // prevent multiple start calls
+      const [matchResult, setMatchResult] = React.useState(null); // store final result text
+      const startGuardRef = React.useRef(false);
+      const introPlayedRef = React.useRef(false); // ensure intro only once
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -428,8 +448,72 @@
 
       const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
 
-      // Check if current innings is finished (max overs reached)
       const isInningsFinished = matchState.legalBalls >= maxOvers * 6;
+
+      // Functions to add summary entries
+      const addSummaryEntry = (text, isImportant = true) => {
+        setCommentaryLog(prev => [{
+          id: Date.now() + Math.random(),
+          text: text,
+          timestamp: new Date().toLocaleTimeString(),
+          isWicket: false,
+          isSummary: true
+        }, ...prev].slice(0, 50));
+      };
+
+      // Pre‑match intro
+      const playMatchIntro = () => {
+        if (introPlayedRef.current) return;
+        introPlayedRef.current = true;
+        const introText = `Welcome to ${matchInfo.venue} for this exciting T20 match between ${matchInfo.team1} and ${matchInfo.team2}. ${matchInfo.toss}. The first innings is about to begin. We're set for a thrilling contest.`;
+        addSummaryEntry(introText);
+        if (!muteAudio) {
+          speakWithCallback(introText, 0, () => {});
+        }
+      };
+
+      // First innings summary (called after first innings ends)
+      const showFirstInningsSummary = () => {
+        if (!firstInningsStats) return;
+        const topScorer = getTopScorer(firstInningsStats.battingStats);
+        const bestBowler = getBestBowler(firstInningsStats.bowlingStats);
+        let summary = `End of first innings. ${firstInningsStats.team} scored ${firstInningsStats.total}/${firstInningsStats.wickets} in ${matchState.overs} overs. `;
+        if (topScorer.name) summary += `Top scorer: ${topScorer.name} with ${topScorer.runs} runs off ${topScorer.balls} balls (${topScorer.fours} fours, ${topScorer.sixes} sixes). `;
+        if (bestBowler.name) summary += `Best bowler: ${bestBowler.name} with ${bestBowler.wickets} wickets for ${bestBowler.runs} runs. `;
+        summary += `${matchInfo.team2} needs ${target} runs to win.`;
+        addSummaryEntry(summary);
+        if (!muteAudio) {
+          speakWithCallback(summary, 1, () => {});
+        }
+      };
+
+      // Full match summary (called after second innings ends)
+      const showFullMatchSummary = () => {
+        if (currentInningsIdx !== 1 || !isInningsFinished) return;
+        const secondInnings = currentInnings;
+        const secondTotal = matchState.totalRuns;
+        const secondWickets = matchState.wickets;
+        const winner = secondTotal >= target ? matchInfo.team2 : matchInfo.team1;
+        const margin = secondTotal >= target ? `${target - secondTotal} wickets` : `${target - secondTotal - 1} runs`;
+        let resultText = `Match result: ${winner} wins by ${margin}. `;
+        // Top performers from both innings
+        const firstTopScorer = getTopScorer(firstInningsStats.battingStats);
+        const firstBestBowler = getBestBowler(firstInningsStats.bowlingStats);
+        const secondTopScorer = getTopScorer(secondInnings.battingStats);
+        const secondBestBowler = getBestBowler(secondInnings.bowlingStats);
+        resultText += `${firstInningsStats.team} scored ${firstInningsStats.total}/${firstInningsStats.wickets}. `;
+        if (firstTopScorer.name) resultText += `Top scorer: ${firstTopScorer.name} (${firstTopScorer.runs}). `;
+        if (firstBestBowler.name) resultText += `Best bowler: ${firstBestBowler.name} (${firstBestBowler.wickets} wickets). `;
+        resultText += `${matchInfo.team2} scored ${secondTotal}/${secondWickets}. `;
+        if (secondTopScorer.name) resultText += `Top scorer: ${secondTopScorer.name} (${secondTopScorer.runs}). `;
+        if (secondBestBowler.name) resultText += `Best bowler: ${secondBestBowler.name} (${secondBestBowler.wickets} wickets). `;
+        resultText += `Player of the match: ${secondTopScorer.runs > firstTopScorer.runs ? secondTopScorer.name : firstTopScorer.name} for their outstanding performance.`;
+        setMatchResult(resultText);
+        addSummaryEntry(resultText);
+        if (!muteAudio) {
+          speakWithCallback(resultText, 2, () => {});
+        }
+      };
 
       React.useEffect(() => {
         if (currentInningsIdx === 1 && firstInningsStats === null) {
@@ -447,6 +531,20 @@
         }
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
+      // After first innings ends, show summary (only once)
+      React.useEffect(() => {
+        if (currentInningsIdx === 0 && isInningsFinished && firstInningsStats) {
+          showFirstInningsSummary();
+        }
+      }, [currentInningsIdx, isInningsFinished, firstInningsStats]);
+
+      // After match ends, show full summary
+      React.useEffect(() => {
+        if (currentInningsIdx === 1 && isInningsFinished && firstInningsStats) {
+          showFullMatchSummary();
+        }
+      }, [currentInningsIdx, isInningsFinished, firstInningsStats]);
+
       const addCommentaryEntry = function(delivery, idx) {
         const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target);
         const ballDesc = `Innings ${currentInningsIdx+1} • Over ${delivery.over}.${delivery.ball} • ${delivery.striker} • ${delivery.bowler} → ${commentaryText}${delivery.wicket ? " 🚨 WICKET!" : ""}`;
@@ -455,10 +553,8 @@
       };
 
       const advanceToNextBall = React.useCallback(function() {
-        // If innings finished (max overs reached), end it
         if (isInningsFinished) {
           if (currentInningsIdx === 0) {
-            // First innings finished
             setIsPlaying(false);
             const firstTotal = matchState.totalRuns;
             const firstWickets = matchState.wickets;
@@ -476,7 +572,6 @@
               speakWithCallback(`End of first innings. ${currentInnings.team} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${firstTotal+1} runs to win. Press start to begin the chase.`, 0, function() {});
             }
           } else {
-            // Second innings finished
             setIsPlaying(false);
             if (!muteAudio) {
               const result = matchState.totalRuns >= target ? "wins" : "loses";
@@ -485,8 +580,6 @@
           }
           return;
         }
-
-        // If we still have balls in the JSON, move to next ball
         if (currentBallIdx + 1 < totalDeliveries) {
           var nextIdx = currentBallIdx + 1;
           var nextDelivery = deliveries[nextIdx];
@@ -509,16 +602,13 @@
           try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
-        // Only advance if not already finished
         if (!isInningsFinished && currentBallIdx + 1 < totalDeliveries) {
           advanceToNextBall();
         }
       };
 
-      // Auto-play interval
       React.useEffect(function() {
         if (!isPlaying) return;
-        // Don't auto-play if innings finished
         if (isInningsFinished) {
           setIsPlaying(false);
           return;
@@ -539,12 +629,14 @@
           setIsSpeaking(false);
         }
         startGuardRef.current = false;
+        introPlayedRef.current = false;
         setCurrentInningsIdx(0);
         setCurrentBallIdx(-1);
         setCommentaryLog([]);
         setVideoBlobUrl(null);
         setFirstInningsStats(null);
         setTarget(initialTarget);
+        setMatchResult(null);
         if (mediaRecorderRef.current && isRecording) {
           mediaRecorderRef.current.stop();
           setIsRecording(false);
@@ -552,14 +644,16 @@
       };
 
       var startMatch = function() {
-        // prevent multiple calls
         if (startGuardRef.current) return;
         startGuardRef.current = true;
         setTimeout(() => { startGuardRef.current = false; }, 500);
 
-        // If we are in first innings and it's finished, switch to second innings
+        // Play intro if this is the very first start of the first innings
+        if (currentInningsIdx === 0 && currentBallIdx === -1 && !introPlayedRef.current) {
+          playMatchIntro();
+        }
+
         if (currentInningsIdx === 0 && isInningsFinished) {
-          // Transition to second innings
           const firstTotal = matchState.totalRuns;
           const firstWickets = matchState.wickets;
           setFirstInningsStats({
@@ -572,14 +666,10 @@
           setTarget(firstTotal + 1);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
-          // Start the second innings after state update
-          setTimeout(() => {
-            startMatch(); // recursive call after state updated
-          }, 50);
+          setTimeout(() => { startMatch(); }, 50);
           return;
         }
 
-        // Normal start: if at beginning of an innings, play first ball
         if (currentBallIdx === -1) {
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
@@ -596,7 +686,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Canvas drawing (unchanged)
+      // Canvas drawing
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -746,7 +836,7 @@
             React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
               React.createElement('h3', { className: "font-bold text-teal-300 mb-2" }, "🎙️ LIVE COMMENTARY"),
               commentaryLog.length === 0 && React.createElement('p', { className: "text-gray-500 text-sm italic" }, "No commentary yet."),
-              React.createElement('div', { className: "space-y-2" }, commentaryLog.map(c => React.createElement('div', { key: c.id, className: `p-2 rounded-md text-sm ${c.isWicket ? "bg-red-900/30 border-l-4 border-red-500" : "bg-gray-800/50"}` },
+              React.createElement('div', { className: "space-y-2" }, commentaryLog.map(c => React.createElement('div', { key: c.id, className: `p-2 rounded-md text-sm ${c.isWicket ? "bg-red-900/30 border-l-4 border-red-500" : "bg-gray-800/50"} ${c.isSummary ? "border-l-4 border-teal-500" : ""}` },
                 React.createElement('span', { className: "text-gray-400 text-[11px] mr-2" }, c.timestamp),
                 React.createElement('span', { className: "commentary-text text-gray-200" }, c.text)
               )))
@@ -769,8 +859,8 @@
         (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" },
           "🏏 First innings finished! Click START to begin the chase. 🏏"
         ),
-        (currentInningsIdx === 1 && isInningsFinished) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center animate-pulse" },
-          "🏆 MATCH FINISHED! Final Score: ", matchState.totalRuns, "/", matchState.wickets, " • Target: ", target, " 🏆"
+        (currentInningsIdx === 1 && isInningsFinished) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center result-banner" },
+          "🏆 MATCH RESULT 🏆<br/>", matchResult ? matchResult.split('.')[0] : `Match finished! ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`
         )
       );
     };
