@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio</title>
+  <title>Cricket Live Studio – Realistic Commentary</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -11,6 +11,7 @@
     .commentary-text { font-family: 'JetBrains Mono', monospace; }
     canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; }
     .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; }
+    select { background: #1f2937; color: white; border-radius: 0.5rem; padding: 0.25rem 0.5rem; }
   </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
@@ -42,23 +43,125 @@
 
   <script type="text/babel">
     // --------------------------------------------------------------
-    // Parser for Cricsheet JSON (safe version, no optional chaining)
+    // Enhanced realistic commentary generation
+    // --------------------------------------------------------------
+    const generateRealisticCommentary = (delivery, isFirstBall = false) => {
+      const runs = delivery.runs;
+      const isWicket = delivery.wicket;
+      const wicketKind = delivery.wicketKind;
+      const striker = delivery.striker;
+      const bowler = delivery.bowler;
+      const extras = delivery.extras || 0;
+
+      // Pre‑defined phrases for excitement
+      const boundaryPhrases = [
+        "Cracked away to the boundary!",
+        "That's a glorious shot!",
+        "Pure timing!",
+        "Races away to the rope!",
+        "He's dispatched that one!"
+      ];
+      const sixPhrases = [
+        "High and handsome! Six runs!",
+        "Out of the park! What a hit!",
+        "That's massive!",
+        "Into the crowd!",
+        "He's launched it!"
+      ];
+      const wicketPhrases = {
+        caught: "Caught! The fielder makes no mistake!",
+        bowled: "Bowled him! Timber!",
+        lbw: "Plumb in front! That's out!",
+        "run out": "Run out! Direct hit!",
+        stumped: "Stumped! The keeper whips the bails off!"
+      };
+
+      if (isWicket) {
+        let phrase = wicketPhrases[wicketKind] || "Wicket! The batsman has to go!";
+        return `${striker} is out! ${phrase}`;
+      }
+
+      if (extras > 0) {
+        if (delivery.extras && delivery.extras.wides) return `Wide! ${extras} run added. ${bowler} needs to get his line right.`;
+        if (delivery.extras && delivery.extras.byes) return `Byes! ${extras} runs. The keeper missed it.`;
+        if (delivery.extras && delivery.extras.legbyes) return `Leg‑byes! ${extras} runs.`;
+        return `${extras} extras.`;
+      }
+
+      if (runs === 0) {
+        const dotPhrases = ["Dot ball! Good bowling.", "No run. Excellent fielding.", "Beaten! That's a beauty."];
+        return dotPhrases[Math.floor(Math.random() * dotPhrases.length)];
+      }
+      if (runs === 1) {
+        return "Quick single! They scamper through.";
+      }
+      if (runs === 2) {
+        return "Two runs. Good running between the wickets.";
+      }
+      if (runs === 4) {
+        const idx = Math.floor(Math.random() * boundaryPhrases.length);
+        return boundaryPhrases[idx];
+      }
+      if (runs === 6) {
+        const idx = Math.floor(Math.random() * sixPhrases.length);
+        return sixPhrases[idx];
+      }
+      return `${runs} runs taken.`;
+    };
+
+    // Voice selection
+    let selectedVoice = null;
+    const getBestVoice = () => {
+      return new Promise((resolve) => {
+        const synth = window.speechSynthesis;
+        const loadVoices = () => {
+          const voices = synth.getVoices();
+          // Try to find Indian English, then any English with good quality
+          let best = voices.find(v => v.lang === 'en-IN' && v.name.includes('Rishi')) ||
+                     voices.find(v => v.lang === 'en-IN') ||
+                     voices.find(v => v.lang === 'en-GB' && v.name.includes('Samantha')) ||
+                     voices.find(v => v.lang === 'en-US' && v.name.includes('Samantha')) ||
+                     voices.find(v => v.lang === 'en-US' && v.name.includes('Google')) ||
+                     voices.find(v => v.lang.startsWith('en'));
+          resolve(best || null);
+        };
+        if (synth.getVoices().length) loadVoices();
+        else synth.addEventListener('voiceschanged', loadVoices);
+      });
+    };
+
+    // Speech function with realistic voice
+    let currentUtterance = null;
+    const speakCommentary = async (text, excitement = false) => {
+      if (!window.speechSynthesis) return;
+      if (currentUtterance) window.speechSynthesis.cancel();
+      if (!selectedVoice) {
+        selectedVoice = await getBestVoice();
+      }
+      const utterance = new SpeechSynthesisUtterance(text);
+      if (selectedVoice) utterance.voice = selectedVoice;
+      utterance.rate = excitement ? 1.0 : 0.9;
+      utterance.pitch = excitement ? 1.1 : 0.95;
+      utterance.volume = 1;
+      currentUtterance = utterance;
+      window.speechSynthesis.speak(utterance);
+    };
+
+    // --------------------------------------------------------------
+    // Parser for Cricsheet JSON (same as before)
     // --------------------------------------------------------------
     const parseCricsheetJSON = (json) => {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length === 0) {
         throw new Error("Invalid Cricsheet format: missing 'info' or 'innings' array");
       }
-
       const matchInfo = {
         teams: (json.info.teams && json.info.teams.join(" vs ")) || "Team A vs Team B",
         venue: json.info.venue || "Unknown Venue",
         date: (json.info.dates && json.info.dates[0]) || "Unknown Date",
         winner: (json.info.outcome && json.info.outcome.winner) || "N/A"
       };
-
       const firstInnings = json.innings[0];
       const deliveriesFlat = [];
-
       for (var i = 0; i < firstInnings.overs.length; i++) {
         var overObj = firstInnings.overs[i];
         var overNum = overObj.over;
@@ -68,38 +171,28 @@
           var isWicket = !!(delivery.wickets && delivery.wickets.length);
           var wicketKind = null;
           var wicketPlayer = null;
+          var extras = (delivery.runs && delivery.runs.extras) || 0;
           if (isWicket) {
             var w = delivery.wickets[0];
             wicketKind = w.kind;
             wicketPlayer = w.player_out;
           }
-
-          // Generate commentary
-          var commentary = "";
-          var extras = (delivery.runs && delivery.runs.extras) || 0;
-          if (isWicket) {
-            commentary = wicketPlayer + " is out! " + wicketKind + (wicketKind === "run out" ? "!" : "") + " Brilliant fielding!";
-          } else if (extras > 0) {
-            if (delivery.extras && delivery.extras.wides) commentary = "Wide! " + extras + " run(s) added.";
-            else if (delivery.extras && delivery.extras.byes) commentary = "Byes! " + extras + " runs.";
-            else if (delivery.extras && delivery.extras.legbyes) commentary = "Leg‑byes! " + extras + " runs.";
-            else commentary = extras + " extras.";
-          } else {
-            if (runs === 0) commentary = "Dot ball! Good bowling.";
-            else if (runs === 1) commentary = "Quick single! Good running.";
-            else if (runs === 2) commentary = "Two runs, well placed.";
-            else if (runs === 4) commentary = "FOUR! Hammered to the boundary!";
-            else if (runs === 6) commentary = "SIX! High and handsome!";
-            else commentary = runs + " runs taken.";
+          // Store extras info for commentary
+          var extrasObj = {};
+          if (delivery.extras) {
+            if (delivery.extras.wides) extrasObj.wides = delivery.extras.wides;
+            if (delivery.extras.byes) extrasObj.byes = delivery.extras.byes;
+            if (delivery.extras.legbyes) extrasObj.legbyes = delivery.extras.legbyes;
           }
-
           deliveriesFlat.push({
             over: overNum,
             ball: delivery.ball || ((deliveriesFlat.length % 6) + 1),
             runs: runs,
             wicket: isWicket,
             wicketKind: wicketKind,
-            commentary: commentary,
+            wicketPlayer: wicketPlayer,
+            extras: extras,
+            extrasObj: extrasObj,
             striker: delivery.batter,
             nonStriker: delivery.non_striker,
             bowler: delivery.bowler
@@ -160,7 +253,7 @@
                   React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "2", d: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" })
                 ),
                 React.createElement('p', { className: "mb-2 text-sm text-gray-300" }, React.createElement('span', { className: "font-semibold" }, "Click to upload"), " Cricsheet JSON"),
-                React.createElement('p', { className: "text-xs text-gray-400" }, "Your IPL 2008 file is fully compatible!")
+                React.createElement('p', { className: "text-xs text-gray-400" }, "Your IPL 2008 file is fully compatible! Realistic audio commentary.")
               ),
               React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: handleFileUpload })
             ),
@@ -196,38 +289,36 @@
 
       var currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalBalls) ? deliveries[currentBallIdx] : null;
 
+      // Enhanced add commentary with realistic text
       var addCommentaryEntry = function(delivery, idx) {
-        var ballDesc = "Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + delivery.commentary + (delivery.wicket ? " 🚨 WICKET!" : "");
+        var commentaryText = generateRealisticCommentary(delivery);
+        var ballDesc = "Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + commentaryText + (delivery.wicket ? " 🚨 WICKET!" : "");
         setCommentaryLog(function(prev) {
           var newEntry = { id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket || false };
           return [newEntry].concat(prev).slice(0, 50);
         });
-      };
-
-      var speakCommentary = function(text) {
-        if (muteAudio) return;
-        if (!window.speechSynthesis) return;
-        window.speechSynthesis.cancel();
-        var utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.95;
-        utterance.lang = 'en-US';
-        window.speechSynthesis.speak(utterance);
+        // Return commentary text for audio
+        return commentaryText;
       };
 
       var playNextBall = React.useCallback(function() {
         if (currentBallIdx + 1 >= totalBalls) {
           setIsPlaying(false);
           if (!muteAudio && window.speechSynthesis) {
-            var finalUtter = new SpeechSynthesisUtterance("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.");
-            window.speechSynthesis.speak(finalUtter);
+            speakCommentary("Match completed! Final score " + matchState.totalRuns + " for " + matchState.wickets + " wickets.", false);
           }
           return;
         }
         var nextIdx = currentBallIdx + 1;
         var nextDelivery = deliveries[nextIdx];
         setCurrentBallIdx(nextIdx);
-        addCommentaryEntry(nextDelivery, nextIdx);
-        speakCommentary(nextDelivery.striker + " facing " + nextDelivery.bowler + ". " + nextDelivery.commentary);
+        var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
+        // Speak with excitement for boundaries and wickets
+        var excitement = (nextDelivery.runs === 4 || nextDelivery.runs === 6 || nextDelivery.wicket);
+        if (!muteAudio) {
+          var intro = nextDelivery.striker + " facing " + nextDelivery.bowler + ". ";
+          speakCommentary(intro + commentaryText, excitement);
+        }
       }, [currentBallIdx, deliveries, totalBalls, matchState.totalRuns, matchState.wickets, muteAudio]);
 
       React.useEffect(function() {
@@ -251,20 +342,23 @@
       var startMatch = function() {
         if (currentBallIdx === -1) {
           setCurrentBallIdx(0);
-          addCommentaryEntry(deliveries[0], 0);
-          speakCommentary(deliveries[0].striker + " facing " + deliveries[0].bowler + ". " + deliveries[0].commentary);
+          var firstDelivery = deliveries[0];
+          var commentary = addCommentaryEntry(firstDelivery, 0);
+          if (!muteAudio) {
+            speakCommentary(firstDelivery.striker + " facing " + firstDelivery.bowler + ". " + commentary, false);
+          }
         }
         setIsPlaying(true);
       };
 
       var pauseMatch = function() { setIsPlaying(false); };
 
+      // Canvas drawing unchanged...
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
         var w = canvas.width, h = canvas.height;
-
         var grad = ctx.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, '#0b2b26');
         grad.addColorStop(1, '#051a17');
@@ -273,14 +367,12 @@
         ctx.strokeStyle = '#2dd4bf';
         ctx.lineWidth = 3;
         ctx.strokeRect(5, 5, w-10, h-10);
-
         ctx.font = 'bold 28px "Inter", sans-serif';
         ctx.fillStyle = '#f0fdf4';
         ctx.fillText(matchInfo.teams, 30, 55);
         ctx.font = '14px monospace';
         ctx.fillStyle = '#a3e9d6';
         ctx.fillText(matchInfo.venue + " • " + matchInfo.date, 30, 85);
-
         ctx.fillStyle = '#000000aa';
         ctx.fillRect(30, 110, w-60, 80);
         ctx.font = 'bold 42px monospace';
@@ -289,7 +381,6 @@
         ctx.font = '24px monospace';
         ctx.fillStyle = '#cbd5e1';
         ctx.fillText("(" + matchState.overs + " overs)", 260, 165);
-
         if (currentDelivery) {
           ctx.font = 'bold 18px "Inter"';
           ctx.fillStyle = '#d9f99d';
@@ -302,7 +393,6 @@
           ctx.fillStyle = '#aaa';
           ctx.fillText("⚡ Awaiting start...", 50, 240);
         }
-
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
         ctx.fillStyle = '#1e2a2acc';
         ctx.fillRect(30, h-130, w-60, 90);
@@ -313,7 +403,6 @@
         ctx.fillStyle = '#f1f5f9';
         var wrapped = lastComment.length > 70 ? lastComment.slice(0,70)+"..." : lastComment;
         ctx.fillText(wrapped, 40, h-70);
-
         ctx.font = '10px monospace';
         ctx.fillStyle = '#4b5563';
         ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
