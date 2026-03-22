@@ -27,7 +27,7 @@
       var errDiv = document.getElementById('error-message');
       errDiv.style.display = 'block';
       errDiv.className = 'error-bar';
-      errDiv.innerHTML = '⚠️ ' + (error ? error.message : msg);
+      errDiv.innerHTML = '⚠️ ' + (error ? error.message : msg) + (url ? ' at ' + url + ':' + line : '');
       return true;
     };
     setTimeout(function() {
@@ -268,6 +268,15 @@
       }
       speechQueue.push({ text, style, onEnd });
       processQueue();
+    };
+
+    // Clear speech queue and cancel current utterance
+    const clearSpeechQueue = () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      speechQueue.length = 0;
+      isSpeaking = false;
     };
 
     // --------------------------------------------------------------
@@ -948,12 +957,8 @@
       }, [currentBallIdx, deliveries, totalDeliveries, currentInningsIdx, matchState, isInningsFinished, isMatchFinished, target, inningsData, currentInnings, muteAudio]);
 
       var manualNextBall = function() {
-        if (internalSpeaking && window.speechSynthesis) {
-          try { window.speechSynthesis.cancel(); } catch(e) {}
-          // We can't easily cancel the queue, but we'll just ignore the current speaking.
-          // The queue will be cleared when the next ball is called.
-          speechQueue.length = 0;
-          isSpeaking = false;
+        if (internalSpeaking) {
+          clearSpeechQueue();
           setInternalSpeaking(false);
         }
         if (!isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
@@ -978,10 +983,8 @@
 
       var resetSimulation = function() {
         setIsPlaying(false);
-        if (internalSpeaking && window.speechSynthesis) {
-          try { window.speechSynthesis.cancel(); } catch(e) {}
-          speechQueue.length = 0;
-          isSpeaking = false;
+        if (internalSpeaking) {
+          clearSpeechQueue();
           setInternalSpeaking(false);
         }
         if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
