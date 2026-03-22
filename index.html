@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Broadcast Graphics with Effects</title>
+  <title>Cricket Live Studio – Broadcast Graphics with Player Avatars</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -52,6 +52,52 @@
       const parts = fullName.split(/[\s.]+/);
       const lastName = parts[parts.length - 1];
       return lastName || fullName;
+    };
+
+    // Helper: get initials for avatar
+    const getInitials = (fullName) => {
+      if (!fullName) return "PL";
+      const parts = fullName.split(/[\s.]+/);
+      if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    };
+
+    // Cache for loaded player images
+    const imageCache = new Map();
+
+    // Load image with caching
+    const loadPlayerImage = (fullName) => {
+      return new Promise((resolve) => {
+        const initials = getInitials(fullName);
+        const url = `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=random&size=80&rounded=true&bold=true&color=fff&length=2`;
+        if (imageCache.has(url)) {
+          resolve(imageCache.get(url));
+          return;
+        }
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+          imageCache.set(url, img);
+          resolve(img);
+        };
+        img.onerror = () => {
+          // Fallback: create a canvas with text
+          const canvas = document.createElement('canvas');
+          canvas.width = 80;
+          canvas.height = 80;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#3b82f6';
+          ctx.fillRect(0, 0, 80, 80);
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 32px "Inter"';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(initials, 40, 40);
+          imageCache.set(url, canvas);
+          resolve(canvas);
+        };
+        img.src = url;
+      });
     };
 
     // --------------------------------------------------------------
@@ -491,6 +537,11 @@
       const [effect, setEffect] = React.useState(null);
       const effectTimeoutRef = React.useRef(null);
 
+      // Image loading state for avatars
+      const [batsmanImage, setBatsmanImage] = React.useState(null);
+      const [bowlerImage, setBowlerImage] = React.useState(null);
+      const [nonStrikerImage, setNonStrikerImage] = React.useState(null);
+
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
       var recordedChunksRef = React.useRef([]);
@@ -518,6 +569,20 @@
       // - maximum overs reached (legalBalls >= maxOvers * 6)
       // - all 10 wickets taken
       const isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
+
+      // Load player images when currentDelivery changes
+      React.useEffect(() => {
+        if (!currentDelivery) return;
+        const loadImages = async () => {
+          const strikerImg = await loadPlayerImage(currentDelivery.striker);
+          const bowlerImg = await loadPlayerImage(currentDelivery.bowler);
+          const nonStrikerImg = await loadPlayerImage(currentDelivery.nonStriker);
+          setBatsmanImage(strikerImg);
+          setBowlerImage(bowlerImg);
+          setNonStrikerImage(nonStrikerImg);
+        };
+        loadImages();
+      }, [currentDelivery]);
 
       // Helper to add summary entries
       const addSummaryEntry = (text, isImportant = true) => {
@@ -731,6 +796,9 @@
         setFirstInningsStats(null);
         setTarget(initialTarget);
         setMatchResult(null);
+        setBatsmanImage(null);
+        setBowlerImage(null);
+        setNonStrikerImage(null);
         if (mediaRecorderRef.current && isRecording) {
           mediaRecorderRef.current.stop();
           setIsRecording(false);
@@ -792,7 +860,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Enhanced canvas drawing with pitch, players, and hit effect (effect drawn last)
+      // Enhanced canvas drawing with player avatars and hit effect
       var drawCanvas = React.useCallback(function() {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -830,35 +898,48 @@
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
 
-        // Draw batsman (silhouette)
-        const batsmanX = pitchX + pitchW * 0.85 - 10;
-        const batsmanY = pitchY + pitchH * 0.1 - 15;
-        ctx.fillStyle = '#3b82f6';
-        ctx.beginPath();
-        ctx.arc(batsmanX, batsmanY, 12, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.rect(batsmanX - 5, batsmanY + 5, 10, 20);
-        ctx.fill();
-        ctx.fillStyle = '#000';
-        ctx.beginPath();
-        ctx.arc(batsmanX - 4, batsmanY - 2, 2, 0, Math.PI * 2);
-        ctx.arc(batsmanX + 4, batsmanY - 2, 2, 0, Math.PI * 2);
-        ctx.fill();
-        // Bowler
-        const bowlerX = pitchX + pitchW * 0.15 + 10;
-        const bowlerY = pitchY + pitchH * 0.9 - 5;
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(bowlerX, bowlerY, 12, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.rect(bowlerX - 5, bowlerY + 5, 10, 20);
-        ctx.fill();
+        // Draw batsman avatar (if loaded)
+        const batsmanX = pitchX + pitchW * 0.85 - 40;
+        const batsmanY = pitchY + pitchH * 0.1 - 45;
+        if (batsmanImage) {
+          ctx.save();
+          ctx.shadowBlur = 0;
+          ctx.drawImage(batsmanImage, batsmanX, batsmanY, 80, 80);
+          ctx.restore();
+        } else {
+          // Fallback silhouette
+          ctx.fillStyle = '#3b82f6';
+          ctx.beginPath();
+          ctx.arc(batsmanX + 40, batsmanY + 40, 30, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
-        // Scoreboard overlay (now drawn before effect so effect is on top)
+        // Draw bowler avatar
+        const bowlerX = pitchX + pitchW * 0.15 - 40;
+        const bowlerY = pitchY + pitchH * 0.9 - 45;
+        if (bowlerImage) {
+          ctx.save();
+          ctx.shadowBlur = 0;
+          ctx.drawImage(bowlerImage, bowlerX, bowlerY, 80, 80);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.arc(bowlerX + 40, bowlerY + 40, 30, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Draw non‑striker avatar (smaller, to side)
+        const nonStrikerX = pitchX + pitchW * 0.5 - 20;
+        const nonStrikerY = pitchY + pitchH * 0.8;
+        if (nonStrikerImage) {
+          ctx.save();
+          ctx.shadowBlur = 0;
+          ctx.drawImage(nonStrikerImage, nonStrikerX, nonStrikerY, 40, 40);
+          ctx.restore();
+        }
+
+        // Scoreboard overlay (drawn before effect so effect is on top)
         ctx.font = 'bold 24px "Inter", sans-serif';
         ctx.fillStyle = '#f0fdf4';
         ctx.fillText(matchInfo.teams, 30, 55);
@@ -910,7 +991,7 @@
         if (effect) {
           const elapsed = (Date.now() - effect.startTime) / 1000; // progress 0→1
           const alpha = Math.max(0, 1 - elapsed);
-          const radius = 40 * (1 - elapsed) + 15;
+          const radius = 50 * (1 - elapsed) + 20;
           let color = '#ffaa44';
           let label = '';
           if (effect.type === 'boundary') { color = '#ff8800'; label = '4'; }
@@ -920,24 +1001,24 @@
           ctx.save();
           ctx.globalAlpha = alpha;
           ctx.beginPath();
-          ctx.arc(batsmanX, batsmanY - 5, radius, 0, Math.PI * 2);
+          ctx.arc(batsmanX + 40, batsmanY + 40, radius, 0, Math.PI * 2);
           ctx.fillStyle = color;
           ctx.fill();
           if (label) {
-            ctx.font = `bold ${Math.floor(24 * (1 - elapsed * 0.5))}px "Inter"`;
+            ctx.font = `bold ${Math.floor(28 * (1 - elapsed * 0.5))}px "Inter"`;
             ctx.fillStyle = '#ffffff';
             ctx.shadowBlur = 0;
-            ctx.fillText(label, batsmanX - 12, batsmanY - 15);
+            ctx.fillText(label, batsmanX + 30, batsmanY + 25);
           }
           // Add radiating lines for boundaries/sixes
           if (effect.type === 'boundary' || effect.type === 'six') {
-            for (let i = 0; i < 5; i++) {
-              const angle = (i / 5) * Math.PI * 2;
-              const dx = Math.cos(angle) * (radius + 10);
-              const dy = Math.sin(angle) * (radius + 10);
+            for (let i = 0; i < 6; i++) {
+              const angle = (i / 6) * Math.PI * 2;
+              const dx = Math.cos(angle) * (radius + 15);
+              const dy = Math.sin(angle) * (radius + 15);
               ctx.beginPath();
-              ctx.moveTo(batsmanX, batsmanY - 5);
-              ctx.lineTo(batsmanX + dx, batsmanY - 5 + dy);
+              ctx.moveTo(batsmanX + 40, batsmanY + 40);
+              ctx.lineTo(batsmanX + 40 + dx, batsmanY + 40 + dy);
               ctx.lineWidth = 3;
               ctx.strokeStyle = color;
               ctx.stroke();
@@ -945,7 +1026,7 @@
           }
           ctx.restore();
         }
-      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect]);
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanImage, bowlerImage, nonStrikerImage]);
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
