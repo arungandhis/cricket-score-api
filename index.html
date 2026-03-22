@@ -23,6 +23,7 @@
   <div id="error-message" style="display: none;"></div>
 
   <script>
+    // Global error handler
     window.onerror = function(msg, url, line, col, error) {
       var errDiv = document.getElementById('error-message');
       errDiv.style.display = 'block';
@@ -284,7 +285,6 @@
     // --------------------------------------------------------------
     let audioCtx = null;
     let murmurSource = null;
-    let murmurGain = null;
     let isAmbienceEnabled = true;
     let ambientGainNode = null;
 
@@ -299,7 +299,7 @@
     const startCrowdMurmur = () => {
       if (!audioCtx) return;
       if (murmurSource) {
-        try { murmurSource.stop(); } catch(e) {}
+        try { murmurSource.disconnect(); } catch(e) {}
         murmurSource = null;
       }
       const bufferSize = 4096;
@@ -319,13 +319,13 @@
       noiseNode.connect(filter);
       filter.connect(murmurGainNode);
       murmurGainNode.connect(ambientGainNode);
-      murmurSource = { node: noiseNode, filter, gain: murmurGainNode };
+      murmurSource = noiseNode;
       noiseNode.connect(filter);
     };
 
     const stopCrowdMurmur = () => {
       if (murmurSource) {
-        try { murmurSource.node.disconnect(); } catch(e) {}
+        try { murmurSource.disconnect(); } catch(e) {}
         murmurSource = null;
       }
     };
@@ -1296,7 +1296,13 @@
       );
     };
 
-    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+    // Wrap the whole render in a try-catch for top-level errors
+    try {
+      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+    } catch (err) {
+      document.getElementById('error-message').style.display = 'block';
+      document.getElementById('error-message').innerHTML = '⚠️ ' + err.message;
+    }
   </script>
 </body>
 </html>
