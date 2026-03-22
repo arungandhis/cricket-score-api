@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Broadcast Graphics with Stadium Ambience</title>
+  <title>Cricket Live Studio – Expressive Commentary & Stadium Ambience</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -164,7 +164,114 @@
     };
 
     // --------------------------------------------------------------
-    // Audio Context for stadium ambience
+    // Enhanced TTS with expressive styles, pauses, and pitch variation
+    // --------------------------------------------------------------
+    let selectedVoice = null;
+    let availableVoices = [];
+    let speechQueue = [];
+    let isSpeaking = false;
+
+    const loadVoices = () => {
+      return new Promise((resolve) => {
+        const synth = window.speechSynthesis;
+        const load = () => {
+          availableVoices = synth.getVoices().filter(v => v.lang.startsWith('en'));
+          if (availableVoices.length === 0) {
+            availableVoices = synth.getVoices();
+          }
+          if (!selectedVoice && availableVoices.length) {
+            selectedVoice = availableVoices.find(v => v.lang === 'en-IN') || availableVoices[0];
+          }
+          resolve(availableVoices);
+        };
+        if (synth.getVoices().length) load();
+        else synth.addEventListener('voiceschanged', load);
+      });
+    };
+
+    // Process queue
+    const processQueue = () => {
+      if (speechQueue.length === 0 || isSpeaking) return;
+      const { text, style, onEnd } = speechQueue.shift();
+      isSpeaking = true;
+      speakText(text, style, () => {
+        isSpeaking = false;
+        if (onEnd) onEnd();
+        processQueue();
+      });
+    };
+
+    // Speak a full text with style, splitting into sentences
+    const speakText = (text, style, callback) => {
+      if (!window.speechSynthesis) {
+        if (callback) callback();
+        return;
+      }
+      // Split into sentences (split by . but keep the period)
+      const sentences = text.match(/[^.!?]+[.!?]/g) || [text];
+      if (sentences.length === 0) {
+        if (callback) callback();
+        return;
+      }
+
+      let styleParams = {
+        normal: { baseRate: 0.9, basePitch: 0.95, gap: 120 },
+        excited: { baseRate: 1.05, basePitch: 1.1, gap: 80 },
+        dramatic: { baseRate: 1.1, basePitch: 1.15, gap: 150 }
+      }[style] || styleParams.normal;
+
+      let index = 0;
+      const speakNext = () => {
+        if (index >= sentences.length) {
+          if (callback) callback();
+          return;
+        }
+        const sentence = sentences[index].trim();
+        if (!sentence) {
+          index++;
+          speakNext();
+          return;
+        }
+        const utterance = new SpeechSynthesisUtterance(sentence);
+        if (selectedVoice) utterance.voice = selectedVoice;
+        // Apply random pitch variation ±2%
+        const randomFactor = 1 + (Math.random() - 0.5) * 0.04;
+        utterance.rate = styleParams.baseRate;
+        utterance.pitch = styleParams.basePitch * randomFactor;
+        utterance.volume = 1;
+        utterance.onend = () => {
+          index++;
+          // Add natural gap between sentences
+          if (index < sentences.length) {
+            setTimeout(speakNext, styleParams.gap);
+          } else {
+            if (callback) callback();
+          }
+        };
+        utterance.onerror = () => {
+          index++;
+          if (index < sentences.length) {
+            setTimeout(speakNext, styleParams.gap);
+          } else {
+            if (callback) callback();
+          }
+        };
+        window.speechSynthesis.speak(utterance);
+      };
+      speakNext();
+    };
+
+    const speakWithCallback = (text, style, onEnd) => {
+      if (!text) {
+        if (onEnd) onEnd();
+        return;
+      }
+      speechQueue.push({ text, style, onEnd });
+      processQueue();
+    };
+
+    // --------------------------------------------------------------
+    // Audio Context for stadium ambience (unchanged)
     // --------------------------------------------------------------
     let audioCtx = null;
     let murmurSource = null;
@@ -175,9 +282,8 @@
     const initAudio = () => {
       if (audioCtx) return;
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // Create gain node for overall ambience volume
       ambientGainNode = audioCtx.createGain();
-      ambientGainNode.gain.value = 0.15; // low-level background
+      ambientGainNode.gain.value = 0.15;
       ambientGainNode.connect(audioCtx.destination);
     };
 
@@ -187,7 +293,6 @@
         try { murmurSource.stop(); } catch(e) {}
         murmurSource = null;
       }
-      // Generate filtered noise for crowd murmur
       const bufferSize = 4096;
       const noiseNode = audioCtx.createScriptProcessor(bufferSize, 1, 1);
       noiseNode.onaudioprocess = (e) => {
@@ -196,12 +301,10 @@
           output[i] = (Math.random() * 2 - 1) * 0.2;
         }
       };
-      // Filter to make it low-frequency rumble
       const filter = audioCtx.createBiquadFilter();
       filter.type = 'lowpass';
       filter.frequency.value = 500;
       filter.Q.value = 1;
-      // Gain for murmur
       const murmurGainNode = audioCtx.createGain();
       murmurGainNode.gain.value = 0.1;
       noiseNode.connect(filter);
@@ -218,10 +321,8 @@
       }
     };
 
-    // Trigger reaction sound
     const playReaction = (type) => {
       if (!audioCtx || !isAmbienceEnabled) return;
-      // Resume audio context if suspended (browser policy)
       if (audioCtx.state === 'suspended') {
         audioCtx.resume();
       }
@@ -232,7 +333,6 @@
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
       
       if (type === 'cheer') {
-        // Create a burst of filtered noise with rising pitch
         const osc = audioCtx.createOscillator();
         osc.type = 'sawtooth';
         osc.frequency.value = 200;
@@ -264,7 +364,6 @@
           try { osc.disconnect(); noise.disconnect(); } catch(e) {}
         }, 1500);
       } else if (type === 'applause') {
-        // Rapid clicks
         const duration = 1.2;
         const interval = 0.05;
         let time = now;
@@ -282,7 +381,6 @@
           time += interval;
         }
       } else if (type === 'gasp') {
-        // Descending noise sweep
         const noise = audioCtx.createBufferSource();
         const bufferSize = 2048;
         const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -306,7 +404,6 @@
       }
     };
 
-    // Start/stop ambience
     const setAmbience = (enabled) => {
       isAmbienceEnabled = enabled;
       if (!audioCtx) return;
@@ -319,72 +416,8 @@
     };
 
     // --------------------------------------------------------------
-    // Voice selection (unchanged)
+    // Parser (unchanged)
     // --------------------------------------------------------------
-    let selectedVoice = null;
-    let availableVoices = [];
-
-    const loadVoices = () => {
-      return new Promise((resolve) => {
-        const synth = window.speechSynthesis;
-        const load = () => {
-          availableVoices = synth.getVoices().filter(v => v.lang.startsWith('en'));
-          if (availableVoices.length === 0) {
-            availableVoices = synth.getVoices();
-          }
-          if (!selectedVoice && availableVoices.length) {
-            selectedVoice = availableVoices.find(v => v.lang === 'en-IN') || availableVoices[0];
-          }
-          resolve(availableVoices);
-        };
-        if (synth.getVoices().length) load();
-        else synth.addEventListener('voiceschanged', load);
-      });
-    };
-
-    let currentUtterance = null;
-    const speakWithCallback = async (text, excitementLevel, onEnd) => {
-      if (!window.speechSynthesis) {
-        if (onEnd) onEnd();
-        return;
-      }
-      if (currentUtterance) {
-        try { window.speechSynthesis.cancel(); } catch(e) {}
-        currentUtterance = null;
-      }
-      if (!selectedVoice) {
-        await loadVoices();
-      }
-      const utterance = new SpeechSynthesisUtterance(text);
-      if (selectedVoice) utterance.voice = selectedVoice;
-      if (excitementLevel === 2) {
-        utterance.rate = 1.1;
-        utterance.pitch = 1.2;
-      } else if (excitementLevel === 1) {
-        utterance.rate = 1.0;
-        utterance.pitch = 1.05;
-      } else {
-        utterance.rate = 0.9;
-        utterance.pitch = 0.95;
-      }
-      utterance.volume = 1;
-      utterance.onend = () => {
-        currentUtterance = null;
-        if (onEnd) onEnd();
-      };
-      utterance.onerror = () => {
-        currentUtterance = null;
-        if (onEnd) onEnd();
-      };
-      currentUtterance = utterance;
-      try {
-        window.speechSynthesis.speak(utterance);
-      } catch(e) {
-        if (onEnd) onEnd();
-      }
-    };
-
-    // Parser that also extracts maximum overs and player names for summaries
     const parseCricsheetJSON = (json) => {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
         throw new Error("Invalid Cricsheet format: need two innings");
@@ -499,7 +532,6 @@
       return { totalRuns, wickets, legalBalls, overs: oversDecimal.toFixed(1) };
     };
 
-    // Compute cumulative batting and bowling stats up to a given ball index
     const computeCumulativeStats = (deliveries, maxIndex) => {
       const battingStats = {};
       const bowlingStats = {};
@@ -511,7 +543,6 @@
         const isWicket = d.wicket;
         const extrasObj = d.extrasObj;
 
-        // Batting
         if (!battingStats[striker]) {
           battingStats[striker] = { runs: 0, balls: 0, fours: 0, sixes: 0 };
         }
@@ -522,7 +553,6 @@
         if (runs === 4) battingStats[striker].fours++;
         if (runs === 6) battingStats[striker].sixes++;
 
-        // Bowling
         if (!bowlingStats[bowler]) {
           bowlingStats[bowler] = { overs: 0, runs: 0, wickets: 0, legalBalls: 0 };
         }
@@ -534,7 +564,6 @@
           bowlingStats[bowler].wickets++;
         }
       }
-      // Convert bowling legal balls to overs
       for (let bowler in bowlingStats) {
         let balls = bowlingStats[bowler].legalBalls;
         let overs = Math.floor(balls / 6) + (balls % 6) / 10;
@@ -544,7 +573,6 @@
       return { battingStats, bowlingStats };
     };
 
-    // Helper to get top scorer from batting stats
     const getTopScorer = (battingStats) => {
       let best = { name: null, runs: -1 };
       for (const [name, stats] of Object.entries(battingStats)) {
@@ -685,7 +713,7 @@
       const [speed, setSpeed] = React.useState(1);
       const [muteAudio, setMuteAudio] = React.useState(false);
       const [commentaryLog, setCommentaryLog] = React.useState([]);
-      const [isSpeaking, setIsSpeaking] = React.useState(false);
+      const [internalSpeaking, setInternalSpeaking] = React.useState(false);
       const [target, setTarget] = React.useState(initialTarget);
       const [firstInningsStats, setFirstInningsStats] = React.useState(null);
       const [matchResult, setMatchResult] = React.useState(null);
@@ -694,18 +722,12 @@
       const firstInningsSummaryTriggeredRef = React.useRef(false);
       const matchSummaryTriggeredRef = React.useRef(false);
 
-      // Ambient sound state
       const [ambientEnabled, setAmbientEnabled] = React.useState(true);
-
-      // Voice selector state
       const [voices, setVoices] = React.useState([]);
       const [selectedVoiceName, setSelectedVoiceName] = React.useState('');
 
-      // Visual effect state for video canvas
       const [effect, setEffect] = React.useState(null);
       const effectTimeoutRef = React.useRef(null);
-
-      // Image loading state for avatars
       const [batsmanImage, setBatsmanImage] = React.useState(null);
       const [bowlerImage, setBowlerImage] = React.useState(null);
       const [nonStrikerImage, setNonStrikerImage] = React.useState(null);
@@ -727,21 +749,14 @@
 
       const currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
 
-      // Compute cumulative stats up to currentBallIdx for live tables
       const cumulativeStats = React.useMemo(() => {
         if (currentBallIdx < 0) return { battingStats: {}, bowlingStats: {} };
         return computeCumulativeStats(deliveries, currentBallIdx);
       }, [currentBallIdx, deliveries]);
 
-      // Innings ends if either:
-      // - maximum overs reached (legalBalls >= maxOvers * 6)
-      // - all 10 wickets taken
       const isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
-
-      // For second innings, also check if target reached
       const isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Load voices and initialize audio
       React.useEffect(() => {
         loadVoices().then(vs => {
           setVoices(vs);
@@ -749,13 +764,10 @@
             setSelectedVoiceName(selectedVoice.name);
           }
         });
-        // Initialize audio context on first user interaction (will be called later)
         const initAudioOnInteraction = () => {
           if (!audioCtx) {
             initAudio();
-            if (ambientEnabled) {
-              setAmbience(true);
-            }
+            if (ambientEnabled) setAmbience(true);
           }
           document.removeEventListener('click', initAudioOnInteraction);
         };
@@ -763,18 +775,13 @@
         return () => document.removeEventListener('click', initAudioOnInteraction);
       }, []);
 
-      // Update ambient sound when toggle changes
       React.useEffect(() => {
         if (audioCtx) {
-          if (ambientEnabled) {
-            setAmbience(true);
-          } else {
-            setAmbience(false);
-          }
+          if (ambientEnabled) setAmbience(true);
+          else setAmbience(false);
         }
       }, [ambientEnabled]);
 
-      // Update selected voice when dropdown changes
       const handleVoiceChange = (e) => {
         const newVoice = voices.find(v => v.name === e.target.value);
         if (newVoice) {
@@ -783,12 +790,9 @@
         }
       };
 
-      const toggleAmbience = () => {
-        setAmbientEnabled(!ambientEnabled);
-      };
+      const toggleAmbience = () => setAmbientEnabled(!ambientEnabled);
 
-      // Helper to add summary entries
-      const addSummaryEntry = (text, isImportant = true) => {
+      const addSummaryEntry = (text) => {
         setCommentaryLog(prev => [{
           id: Date.now() + Math.random(),
           text: text,
@@ -798,18 +802,14 @@
         }, ...prev].slice(0, 50));
       };
 
-      // Pre‑match intro (uses team names only)
       const playMatchIntro = () => {
         if (introPlayedRef.current) return;
         introPlayedRef.current = true;
         const introText = `Welcome to ${matchInfo.venue} for this exciting match between ${matchInfo.team1} and ${matchInfo.team2}. ${matchInfo.toss}. The first innings is about to begin. We're set for a thrilling contest.`;
         addSummaryEntry(introText);
-        if (!muteAudio) {
-          speakWithCallback(introText, 0, () => {});
-        }
+        if (!muteAudio) speakWithCallback(introText, 'normal', () => {});
       };
 
-      // First innings summary (uses last names in audio)
       const showFirstInningsSummary = (inningTeam, total, wickets, overs, battingStats, bowlingStats, targetScore) => {
         const topScorer = getTopScorer(battingStats);
         const bestBowler = getBestBowler(bowlingStats);
@@ -818,14 +818,10 @@
         if (bestBowler.name) summary += `Best bowler: ${getLastName(bestBowler.name)} with ${bestBowler.wickets} wickets for ${bestBowler.runs} runs. `;
         summary += `${matchInfo.team2} needs ${targetScore} runs to win.`;
         addSummaryEntry(summary);
-        if (!muteAudio) {
-          speakWithCallback(summary, 1, () => {});
-        }
-        // Also trigger applause for end of innings
+        if (!muteAudio) speakWithCallback(summary, 'normal', () => {});
         if (ambientEnabled) playReaction('applause');
       };
 
-      // Full match summary (uses last names in audio)
       const showFullMatchSummary = () => {
         if (!isMatchFinished) return;
         if (matchSummaryTriggeredRef.current) return;
@@ -849,13 +845,10 @@
         resultText += `Player of the match: ${secondTopScorer.runs > firstTopScorer.runs ? getLastName(secondTopScorer.name) : getLastName(firstTopScorer.name)} for their outstanding performance.`;
         setMatchResult(resultText);
         addSummaryEntry(resultText);
-        if (!muteAudio) {
-          speakWithCallback(resultText, 2, () => {});
-        }
+        if (!muteAudio) speakWithCallback(resultText, 'dramatic', () => {});
         if (ambientEnabled) playReaction('cheer');
       };
 
-      // Store first innings stats after first innings ends (used for display and later summary)
       React.useEffect(() => {
         if (currentInningsIdx === 1 && firstInningsStats === null) {
           const firstInnings = inningsData[0];
@@ -872,11 +865,9 @@
         }
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
-      // AUTO-TRIGGER: when match finishes, show summary immediately
       React.useEffect(() => {
         if (isMatchFinished && firstInningsStats) {
           showFullMatchSummary();
-          // Also ensure auto-play stops
           setIsPlaying(false);
         }
       }, [isMatchFinished, firstInningsStats]);
@@ -888,9 +879,7 @@
         return commentaryText;
       };
 
-      // Trigger visual effect and ambient reaction
       const triggerEffectAndReaction = (runs, isWicket) => {
-        // Visual effect
         if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
         let type = 'normal';
         if (isWicket) type = 'wicket';
@@ -900,26 +889,17 @@
         setEffect({ type, startTime: Date.now() });
         effectTimeoutRef.current = setTimeout(() => setEffect(null), 1000);
 
-        // Audio reaction
         if (ambientEnabled && !muteAudio) {
-          if (isWicket) {
-            playReaction('gasp');
-          } else if (runs === 4 || runs === 6) {
-            playReaction('cheer');
-          } else if (runs === 0) {
-            // maybe a light groan? we'll skip for now
-          }
+          if (isWicket) playReaction('gasp');
+          else if (runs === 4 || runs === 6) playReaction('cheer');
         }
       };
 
       const advanceToNextBall = React.useCallback(function() {
-        // If match is finished, stop playing (no further balls)
         if (isMatchFinished) {
           setIsPlaying(false);
           return;
         }
-
-        // If first innings finished, switch to second
         if (isInningsFinished && currentInningsIdx === 0) {
           const firstTotal = matchState.totalRuns;
           const firstWickets = matchState.wickets;
@@ -945,13 +925,10 @@
           setTarget(targetScore);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
-          if (!muteAudio) {
-            speakWithCallback(`End of first innings. ${firstTeam} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${targetScore} runs to win. Press start to begin the chase.`, 0, function() {});
-          }
+          if (!muteAudio) speakWithCallback(`End of first innings. ${firstTeam} scored ${firstTotal} for ${firstWickets}. ${inningsData[1].team} needs ${targetScore} runs to win. Press start to begin the chase.`, 'normal', () => {});
           return;
         }
 
-        // Normal ball progression
         if (currentBallIdx + 1 < totalDeliveries) {
           var nextIdx = currentBallIdx + 1;
           var nextDelivery = deliveries[nextIdx];
@@ -961,19 +938,23 @@
           if (!muteAudio) {
             var intro = `${getLastName(nextDelivery.striker)} facing ${getLastName(nextDelivery.bowler)}. `;
             var fullText = intro + commentaryText;
-            var excitementLevel = 0;
-            if (nextDelivery.runs === 4 || nextDelivery.runs === 6) excitementLevel = 1;
-            if (nextDelivery.wicket) excitementLevel = 2;
-            setIsSpeaking(true);
-            speakWithCallback(fullText, excitementLevel, function() { setIsSpeaking(false); });
+            var style = 'normal';
+            if (nextDelivery.runs === 4 || nextDelivery.runs === 6) style = 'excited';
+            if (nextDelivery.wicket) style = 'dramatic';
+            setInternalSpeaking(true);
+            speakWithCallback(fullText, style, () => setInternalSpeaking(false));
           }
         }
       }, [currentBallIdx, deliveries, totalDeliveries, currentInningsIdx, matchState, isInningsFinished, isMatchFinished, target, inningsData, currentInnings, muteAudio]);
 
       var manualNextBall = function() {
-        if (isSpeaking && window.speechSynthesis) {
+        if (internalSpeaking && window.speechSynthesis) {
           try { window.speechSynthesis.cancel(); } catch(e) {}
-          setIsSpeaking(false);
+          // We can't easily cancel the queue, but we'll just ignore the current speaking.
+          // The queue will be cleared when the next ball is called.
+          speechQueue.length = 0;
+          isSpeaking = false;
+          setInternalSpeaking(false);
         }
         if (!isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
           advanceToNextBall();
@@ -988,18 +969,20 @@
         }
         var intervalTime = 100 / speed;
         var timer = setInterval(function() {
-          if (!isSpeaking && !isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
+          if (!internalSpeaking && !isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
             advanceToNextBall();
           }
         }, intervalTime);
         return function() { clearInterval(timer); };
-      }, [isPlaying, speed, isSpeaking, currentBallIdx, advanceToNextBall, totalDeliveries, isMatchFinished]);
+      }, [isPlaying, speed, internalSpeaking, currentBallIdx, advanceToNextBall, totalDeliveries, isMatchFinished]);
 
       var resetSimulation = function() {
         setIsPlaying(false);
-        if (isSpeaking && window.speechSynthesis) {
+        if (internalSpeaking && window.speechSynthesis) {
           try { window.speechSynthesis.cancel(); } catch(e) {}
-          setIsSpeaking(false);
+          speechQueue.length = 0;
+          isSpeaking = false;
+          setInternalSpeaking(false);
         }
         if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
         setEffect(null);
@@ -1028,12 +1011,10 @@
         startGuardRef.current = true;
         setTimeout(() => { startGuardRef.current = false; }, 500);
 
-        // Play intro if this is the very first start of the first innings
         if (currentInningsIdx === 0 && currentBallIdx === -1 && !introPlayedRef.current) {
           playMatchIntro();
         }
 
-        // If first innings finished, switch to second (this case shouldn't happen often because we'd have already switched)
         if (currentInningsIdx === 0 && isInningsFinished) {
           const firstTotal = matchState.totalRuns;
           const firstWickets = matchState.wickets;
@@ -1067,9 +1048,9 @@
           triggerEffectAndReaction(firstDelivery.runs, firstDelivery.wicket);
           if (!muteAudio) {
             var intro = `${getLastName(firstDelivery.striker)} facing ${getLastName(firstDelivery.bowler)}. `;
-            var excitementLevel = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 1 : 0;
-            setIsSpeaking(true);
-            speakWithCallback(intro + commentary, excitementLevel, function() { setIsSpeaking(false); });
+            var style = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 'excited' : 'normal';
+            setInternalSpeaking(true);
+            speakWithCallback(intro + commentary, style, () => setInternalSpeaking(false));
           }
         }
         setIsPlaying(true);
@@ -1077,7 +1058,6 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Load player images when currentDelivery changes
       React.useEffect(() => {
         if (!currentDelivery) return;
         const loadImages = async () => {
@@ -1091,86 +1071,39 @@
         loadImages();
       }, [currentDelivery]);
 
-      // Canvas drawing (unchanged)
       var drawCanvas = React.useCallback(function() {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const w = canvas.width, h = canvas.height;
-
-        // Clear and draw background (stadium)
         const grad = ctx.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, '#0b2b26');
         grad.addColorStop(1, '#051a17');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, w, h);
-
-        // Draw pitch (green rectangle with crease lines)
-        const pitchX = w * 0.3;
-        const pitchW = w * 0.4;
-        const pitchY = h * 0.3;
-        const pitchH = h * 0.4;
+        const pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
         ctx.fillStyle = '#2c5e2e';
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
-        // Crease lines
         ctx.beginPath();
         ctx.strokeStyle = '#fff5e0';
         ctx.lineWidth = 2;
-        // Bowling crease
         ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.9);
         ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.9);
         ctx.stroke();
-        // Batting crease
         ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.1);
         ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.1);
         ctx.stroke();
-        // Stumps
         ctx.fillStyle = '#b97c3e';
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
-
-        // Draw batsman avatar (if loaded)
-        const batsmanX = pitchX + pitchW * 0.85 - 40;
-        const batsmanY = pitchY + pitchH * 0.1 - 45;
-        if (batsmanImage) {
-          ctx.save();
-          ctx.shadowBlur = 0;
-          ctx.drawImage(batsmanImage, batsmanX, batsmanY, 80, 80);
-          ctx.restore();
-        } else {
-          // Fallback silhouette
-          ctx.fillStyle = '#3b82f6';
-          ctx.beginPath();
-          ctx.arc(batsmanX + 40, batsmanY + 40, 30, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Draw bowler avatar
-        const bowlerX = pitchX + pitchW * 0.15 - 40;
-        const bowlerY = pitchY + pitchH * 0.9 - 45;
-        if (bowlerImage) {
-          ctx.save();
-          ctx.shadowBlur = 0;
-          ctx.drawImage(bowlerImage, bowlerX, bowlerY, 80, 80);
-          ctx.restore();
-        } else {
-          ctx.fillStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.arc(bowlerX + 40, bowlerY + 40, 30, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // Draw non‑striker avatar (smaller, to side)
-        const nonStrikerX = pitchX + pitchW * 0.5 - 20;
-        const nonStrikerY = pitchY + pitchH * 0.8;
-        if (nonStrikerImage) {
-          ctx.save();
-          ctx.shadowBlur = 0;
-          ctx.drawImage(nonStrikerImage, nonStrikerX, nonStrikerY, 40, 40);
-          ctx.restore();
-        }
-
-        // Scoreboard overlay (drawn before effect so effect is on top)
+        const batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
+        if (batsmanImage) ctx.drawImage(batsmanImage, batsmanX, batsmanY, 80, 80);
+        else { ctx.fillStyle = '#3b82f6'; ctx.beginPath(); ctx.arc(batsmanX+40, batsmanY+40, 30, 0, Math.PI*2); ctx.fill(); }
+        const bowlerX = pitchX + pitchW * 0.15 - 40, bowlerY = pitchY + pitchH * 0.9 - 45;
+        if (bowlerImage) ctx.drawImage(bowlerImage, bowlerX, bowlerY, 80, 80);
+        else { ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(bowlerX+40, bowlerY+40, 30, 0, Math.PI*2); ctx.fill(); }
+        const nonStrikerX = pitchX + pitchW * 0.5 - 20, nonStrikerY = pitchY + pitchH * 0.8;
+        if (nonStrikerImage) ctx.drawImage(nonStrikerImage, nonStrikerX, nonStrikerY, 40, 40);
         ctx.font = 'bold 24px "Inter", sans-serif';
         ctx.fillStyle = '#f0fdf4';
         ctx.fillText(matchInfo.teams, 30, 55);
@@ -1199,12 +1132,8 @@
           ctx.fillText("🔄 NON-STRIKER: " + getLastName(currentDelivery.nonStriker), 50, 280);
           ctx.fillStyle = '#fde047';
           ctx.fillText("⚡ BOWLER: " + getLastName(currentDelivery.bowler), 50, 310);
-        } else {
-          ctx.fillStyle = '#aaa';
-          ctx.fillText("⚡ Awaiting start...", 50, 250);
-        }
-        // Latest commentary box
-        var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
+        } else ctx.fillStyle = '#aaa', ctx.fillText("⚡ Awaiting start...", 50, 250);
+        var lastComment = commentaryLog[0]?.text || "No commentary yet";
         ctx.fillStyle = '#1e2a2acc';
         ctx.fillRect(30, h-130, w-60, 90);
         ctx.font = 'italic 14px "JetBrains Mono"';
@@ -1217,14 +1146,11 @@
         ctx.font = '9px monospace';
         ctx.fillStyle = '#4b5563';
         ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
-
-        // Draw visual effect LAST
         if (effect) {
           const elapsed = (Date.now() - effect.startTime) / 1000;
           const alpha = Math.max(0, 1 - elapsed);
           const radius = 50 * (1 - elapsed) + 20;
-          let color = '#ffaa44';
-          let label = '';
+          let color = '#ffaa44', label = '';
           if (effect.type === 'boundary') { color = '#ff8800'; label = '4'; }
           if (effect.type === 'six') { color = '#ff3300'; label = '6'; }
           if (effect.type === 'wicket') { color = '#aa66ff'; label = 'W'; }
@@ -1232,24 +1158,22 @@
           ctx.save();
           ctx.globalAlpha = alpha;
           ctx.beginPath();
-          ctx.arc(batsmanX + 40, batsmanY + 40, radius, 0, Math.PI * 2);
+          ctx.arc(batsmanX+40, batsmanY+40, radius, 0, Math.PI*2);
           ctx.fillStyle = color;
           ctx.fill();
           if (label) {
             ctx.font = `bold ${Math.floor(28 * (1 - elapsed * 0.5))}px "Inter"`;
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 0;
-            ctx.fillText(label, batsmanX + 30, batsmanY + 25);
+            ctx.fillText(label, batsmanX+30, batsmanY+25);
           }
-          // Add radiating lines for boundaries/sixes
           if (effect.type === 'boundary' || effect.type === 'six') {
             for (let i = 0; i < 6; i++) {
               const angle = (i / 6) * Math.PI * 2;
               const dx = Math.cos(angle) * (radius + 15);
               const dy = Math.sin(angle) * (radius + 15);
               ctx.beginPath();
-              ctx.moveTo(batsmanX + 40, batsmanY + 40);
-              ctx.lineTo(batsmanX + 40 + dx, batsmanY + 40 + dy);
+              ctx.moveTo(batsmanX+40, batsmanY+40);
+              ctx.lineTo(batsmanX+40+dx, batsmanY+40+dy);
               ctx.lineWidth = 3;
               ctx.strokeStyle = color;
               ctx.stroke();
@@ -1259,7 +1183,7 @@
         }
       }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanImage, bowlerImage, nonStrikerImage]);
 
-      React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
+      React.useEffect(() => drawCanvas(), [drawCanvas]);
 
       var startRecording = function() {
         if (!canvasRef.current) return;
@@ -1277,11 +1201,7 @@
         mediaRecorderRef.current = mediaRecorder;
         setIsRecording(true);
       };
-
-      var stopRecording = function() {
-        if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
-      };
-
+      var stopRecording = function() { if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop(); };
       var downloadVideo = function() {
         if (videoBlobUrl) {
           var a = document.createElement('a');
@@ -1290,11 +1210,8 @@
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
-        } else {
-          alert("No recorded video. Click 'Start Recording' and simulate the match.");
-        }
+        } else alert("No recorded video. Click 'Start Recording' and simulate the match.");
       };
-
       var progressPercent = (currentBallIdx >= 0 && totalDeliveries > 0) ? ((currentBallIdx+1)/totalDeliveries)*100 : 0;
       const isMatchOver = isMatchFinished;
       const startDisabled = isMatchOver;
@@ -1307,9 +1224,7 @@
           ),
           React.createElement('button', { onClick: props.onReset, className: "px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm" }, "🔄 Upload New JSON")
         ),
-        React.createElement('div', { className: "bg-teal-900/30 border border-teal-500/50 rounded-lg p-2 text-center text-sm" },
-          "🏆 ", matchInfo.toss
-        ),
+        React.createElement('div', { className: "bg-teal-900/30 border border-teal-500/50 rounded-lg p-2 text-center text-sm" }, "🏆 ", matchInfo.toss),
         React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
           React.createElement('div', { className: "lg:col-span-2 space-y-4" },
             React.createElement('div', { className: "bg-black/40 rounded-2xl p-5 border border-teal-500/30" },
@@ -1345,9 +1260,7 @@
               ),
               React.createElement('div', { className: "flex items-center gap-1" },
                 React.createElement('span', { className: "text-xs" }, "Voice:"),
-                React.createElement('select', { value: selectedVoiceName, onChange: handleVoiceChange, className: "text-xs" },
-                  voices.map(v => React.createElement('option', { key: v.name, value: v.name }, v.name + (v.lang ? ` (${v.lang})` : '')))
-                )
+                React.createElement('select', { value: selectedVoiceName, onChange: handleVoiceChange, className: "text-xs" }, voices.map(v => React.createElement('option', { key: v.name, value: v.name }, v.name + (v.lang ? ` (${v.lang})` : ''))))
               ),
               React.createElement('button', { onClick: () => setMuteAudio(!muteAudio), className: `px-3 py-1 rounded-md text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}` }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
               React.createElement('button', { onClick: toggleAmbience, className: `px-3 py-1 rounded-md text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}` }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off")
@@ -1375,12 +1288,8 @@
             React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. WebM videos are accepted by YouTube. You can also convert to MP4 using free online tools if needed.")
           )
         ),
-        (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" },
-          "🏏 First innings finished! Click START to begin the chase. 🏏"
-        ),
-        (isMatchFinished) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center result-banner" },
-          "🏆 MATCH RESULT 🏆<br/>", matchResult ? matchResult.split('.')[0] : `Match finished! ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`
-        )
+        (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" }, "🏏 First innings finished! Click START to begin the chase. 🏏"),
+        (isMatchFinished) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center result-banner" }, "🏆 MATCH RESULT 🏆<br/>", matchResult ? matchResult.split('.')[0] : `Match finished! ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`)
       );
     };
 
