@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Broadcast Graphics with Player Avatars</title>
+  <title>Cricket Live Studio – Broadcast Graphics with Voice Selector</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -15,6 +15,7 @@
     .stats-table table { min-width: 500px; }
     .result-banner { animation: pulse 1s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    select { background: #1f2937; color: white; border-radius: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
   </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
@@ -162,26 +163,31 @@
       return `${runs} runs taken.`;
     };
 
-    // Voice selection
+    // Voice selection (global)
     let selectedVoice = null;
-    const getBestVoice = () => {
+    let availableVoices = [];
+
+    const loadVoices = () => {
       return new Promise((resolve) => {
         const synth = window.speechSynthesis;
-        const loadVoices = () => {
-          const voices = synth.getVoices();
-          let best = voices.find(v => v.lang === 'en-IN' && v.name.includes('Rishi')) ||
-                     voices.find(v => v.lang === 'en-IN') ||
-                     voices.find(v => v.lang === 'en-GB' && v.name.includes('Samantha')) ||
-                     voices.find(v => v.lang === 'en-US' && v.name.includes('Samantha')) ||
-                     voices.find(v => v.lang === 'en-US' && v.name.includes('Google')) ||
-                     voices.find(v => v.lang.startsWith('en'));
-          resolve(best || null);
+        const load = () => {
+          availableVoices = synth.getVoices().filter(v => v.lang.startsWith('en'));
+          if (availableVoices.length === 0) {
+            // fallback to any voice
+            availableVoices = synth.getVoices();
+          }
+          if (!selectedVoice && availableVoices.length) {
+            // pick default: Indian English if available, else first English
+            selectedVoice = availableVoices.find(v => v.lang === 'en-IN') || availableVoices[0];
+          }
+          resolve(availableVoices);
         };
-        if (synth.getVoices().length) loadVoices();
-        else synth.addEventListener('voiceschanged', loadVoices);
+        if (synth.getVoices().length) load();
+        else synth.addEventListener('voiceschanged', load);
       });
     };
 
+    // Speech function with selected voice
     let currentUtterance = null;
     const speakWithCallback = async (text, excitementLevel, onEnd) => {
       if (!window.speechSynthesis) {
@@ -193,7 +199,7 @@
         currentUtterance = null;
       }
       if (!selectedVoice) {
-        selectedVoice = await getBestVoice();
+        await loadVoices();
       }
       const utterance = new SpeechSynthesisUtterance(text);
       if (selectedVoice) utterance.voice = selectedVoice;
@@ -534,6 +540,10 @@
       const firstInningsSummaryTriggeredRef = React.useRef(false);
       const matchSummaryTriggeredRef = React.useRef(false);
 
+      // Voice selector state
+      const [voices, setVoices] = React.useState([]);
+      const [selectedVoiceName, setSelectedVoiceName] = React.useState('');
+
       // Visual effect state for video canvas
       const [effect, setEffect] = React.useState(null);
       const effectTimeoutRef = React.useRef(null);
@@ -573,6 +583,25 @@
 
       // For second innings, also check if target reached
       const isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
+
+      // Load voices
+      React.useEffect(() => {
+        loadVoices().then(vs => {
+          setVoices(vs);
+          if (selectedVoice) {
+            setSelectedVoiceName(selectedVoice.name);
+          }
+        });
+      }, []);
+
+      // Update selected voice when dropdown changes
+      const handleVoiceChange = (e) => {
+        const newVoice = voices.find(v => v.name === e.target.value);
+        if (newVoice) {
+          selectedVoice = newVoice;
+          setSelectedVoiceName(newVoice.name);
+        }
+      };
 
       // Helper to add summary entries
       const addSummaryEntry = (text, isImportant = true) => {
@@ -1115,6 +1144,12 @@
                 React.createElement('span', { className: "text-xs" }, "Speed:"),
                 [1,2,4].map(sp => React.createElement('button', { key: sp, onClick: () => setSpeed(sp), className: `px-3 py-1 rounded-md text-xs ${speed === sp ? "bg-teal-600" : "bg-gray-700"}` }, sp + "x"))
               ),
+              React.createElement('div', { className: "flex items-center gap-1" },
+                React.createElement('span', { className: "text-xs" }, "Voice:"),
+                React.createElement('select', { value: selectedVoiceName, onChange: handleVoiceChange, className: "text-xs" },
+                  voices.map(v => React.createElement('option', { key: v.name, value: v.name }, v.name + (v.lang ? ` (${v.lang})` : '')))
+                )
+              ),
               React.createElement('button', { onClick: () => setMuteAudio(!muteAudio), className: `px-3 py-1 rounded-md text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}` }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On")
             ),
             React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
@@ -1136,8 +1171,8 @@
                 : React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1.5 rounded-full" }, "⏹️ Stop & Save"),
               React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "📥 Download Video")
             ),
-            videoBlobUrl && React.createElement('div', { className: "mt-3 text-xs text-center text-green-300 bg-gray-900/60 p-2 rounded-lg" }, "✅ Video ready! Download and upload to YouTube."),
-            React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. After download, upload manually to YouTube.")
+            videoBlobUrl && React.createElement('div', { className: "mt-3 text-xs text-center text-green-300 bg-gray-900/60 p-2 rounded-lg" }, "✅ Video ready! Download and upload to YouTube (WebM format)."),
+            React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. WebM videos are accepted by YouTube. You can also convert to MP4 using free online tools if needed.")
           )
         ),
         (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" },
