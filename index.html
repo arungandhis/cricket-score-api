@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Full Match Simulator</title>
+  <title>Cricket Live Studio – Broadcast Graphics with Effects</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -49,7 +49,6 @@
     // --------------------------------------------------------------
     const getLastName = (fullName) => {
       if (!fullName) return "player";
-      // Split by space or dot and take the last segment
       const parts = fullName.split(/[\s.]+/);
       const lastName = parts[parts.length - 1];
       return lastName || fullName;
@@ -409,7 +408,7 @@
 
     const StatsPanel = ({ battingStats, bowlingStats, title }) => {
       const battingRows = Object.entries(battingStats).map(([name, stats]) => ({
-        name: getLastName(name), // Show last name in table too (optional)
+        name: getLastName(name),
         ...stats,
         sr: stats.runs / stats.balls * 100 || 0
       })).sort((a,b) => b.runs - a.runs);
@@ -487,6 +486,10 @@
       const startGuardRef = React.useRef(false);
       const introPlayedRef = React.useRef(false);
       const firstInningsSummaryTriggeredRef = React.useRef(false);
+
+      // Visual effect state for video canvas
+      const [effect, setEffect] = React.useState(null);
+      const effectTimeoutRef = React.useRef(null);
 
       var canvasRef = React.useRef(null);
       var mediaRecorderRef = React.useRef(null);
@@ -610,6 +613,18 @@
         return commentaryText;
       };
 
+      // Trigger visual effect on canvas
+      const triggerEffect = (runs, isWicket) => {
+        if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
+        let type = 'normal';
+        if (isWicket) type = 'wicket';
+        else if (runs === 4) type = 'boundary';
+        else if (runs === 6) type = 'six';
+        else if (runs === 0) type = 'dot';
+        setEffect({ type, startTime: Date.now() });
+        effectTimeoutRef.current = setTimeout(() => setEffect(null), 1000);
+      };
+
       const advanceToNextBall = React.useCallback(function() {
         // If innings finished (overs or all out), end it
         if (isInningsFinished) {
@@ -659,8 +674,9 @@
           var nextDelivery = deliveries[nextIdx];
           setCurrentBallIdx(nextIdx);
           var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
+          // Trigger visual effect based on runs
+          triggerEffect(nextDelivery.runs, nextDelivery.wicket);
           if (!muteAudio) {
-            // Use last names for audio
             var intro = `${getLastName(nextDelivery.striker)} facing ${getLastName(nextDelivery.bowler)}. `;
             var fullText = intro + commentaryText;
             var excitementLevel = 0;
@@ -703,6 +719,8 @@
           try { window.speechSynthesis.cancel(); } catch(e) {}
           setIsSpeaking(false);
         }
+        if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
+        setEffect(null);
         startGuardRef.current = false;
         introPlayedRef.current = false;
         firstInningsSummaryTriggeredRef.current = false;
@@ -761,6 +779,7 @@
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
           var commentary = addCommentaryEntry(firstDelivery, 0);
+          triggerEffect(firstDelivery.runs, firstDelivery.wicket);
           if (!muteAudio) {
             var intro = `${getLastName(firstDelivery.striker)} facing ${getLastName(firstDelivery.bowler)}. `;
             var excitementLevel = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 1 : 0;
@@ -773,20 +792,73 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Canvas drawing (unchanged)
+      // Enhanced canvas drawing with pitch, players, and hit effect (effect drawn last)
       var drawCanvas = React.useCallback(function() {
-        var canvas = canvasRef.current;
+        const canvas = canvasRef.current;
         if (!canvas) return;
-        var ctx = canvas.getContext('2d');
-        var w = canvas.width, h = canvas.height;
-        var grad = ctx.createLinearGradient(0, 0, 0, h);
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+
+        // Clear and draw background (stadium)
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, '#0b2b26');
         grad.addColorStop(1, '#051a17');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, w, h);
-        ctx.strokeStyle = '#2dd4bf';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(5, 5, w-10, h-10);
+
+        // Draw pitch (green rectangle with crease lines)
+        const pitchX = w * 0.3;
+        const pitchW = w * 0.4;
+        const pitchY = h * 0.3;
+        const pitchH = h * 0.4;
+        ctx.fillStyle = '#2c5e2e';
+        ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
+        // Crease lines
+        ctx.beginPath();
+        ctx.strokeStyle = '#fff5e0';
+        ctx.lineWidth = 2;
+        // Bowling crease
+        ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.9);
+        ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.9);
+        ctx.stroke();
+        // Batting crease
+        ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.1);
+        ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.1);
+        ctx.stroke();
+        // Stumps
+        ctx.fillStyle = '#b97c3e';
+        ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
+        ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
+
+        // Draw batsman (silhouette)
+        const batsmanX = pitchX + pitchW * 0.85 - 10;
+        const batsmanY = pitchY + pitchH * 0.1 - 15;
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(batsmanX, batsmanY, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.rect(batsmanX - 5, batsmanY + 5, 10, 20);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(batsmanX - 4, batsmanY - 2, 2, 0, Math.PI * 2);
+        ctx.arc(batsmanX + 4, batsmanY - 2, 2, 0, Math.PI * 2);
+        ctx.fill();
+        // Bowler
+        const bowlerX = pitchX + pitchW * 0.15 + 10;
+        const bowlerY = pitchY + pitchH * 0.9 - 5;
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(bowlerX, bowlerY, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.rect(bowlerX - 5, bowlerY + 5, 10, 20);
+        ctx.fill();
+
+        // Scoreboard overlay (now drawn before effect so effect is on top)
         ctx.font = 'bold 24px "Inter", sans-serif';
         ctx.fillStyle = '#f0fdf4';
         ctx.fillText(matchInfo.teams, 30, 55);
@@ -819,6 +891,7 @@
           ctx.fillStyle = '#aaa';
           ctx.fillText("⚡ Awaiting start...", 50, 250);
         }
+        // Latest commentary box
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
         ctx.fillStyle = '#1e2a2acc';
         ctx.fillRect(30, h-130, w-60, 90);
@@ -832,7 +905,47 @@
         ctx.font = '9px monospace';
         ctx.fillStyle = '#4b5563';
         ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
-      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats]);
+
+        // Draw visual effect LAST so it appears on top of everything
+        if (effect) {
+          const elapsed = (Date.now() - effect.startTime) / 1000; // progress 0→1
+          const alpha = Math.max(0, 1 - elapsed);
+          const radius = 40 * (1 - elapsed) + 15;
+          let color = '#ffaa44';
+          let label = '';
+          if (effect.type === 'boundary') { color = '#ff8800'; label = '4'; }
+          if (effect.type === 'six') { color = '#ff3300'; label = '6'; }
+          if (effect.type === 'wicket') { color = '#aa66ff'; label = 'W'; }
+          if (effect.type === 'dot') color = '#88aaff';
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.beginPath();
+          ctx.arc(batsmanX, batsmanY - 5, radius, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          if (label) {
+            ctx.font = `bold ${Math.floor(24 * (1 - elapsed * 0.5))}px "Inter"`;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowBlur = 0;
+            ctx.fillText(label, batsmanX - 12, batsmanY - 15);
+          }
+          // Add radiating lines for boundaries/sixes
+          if (effect.type === 'boundary' || effect.type === 'six') {
+            for (let i = 0; i < 5; i++) {
+              const angle = (i / 5) * Math.PI * 2;
+              const dx = Math.cos(angle) * (radius + 10);
+              const dy = Math.sin(angle) * (radius + 10);
+              ctx.beginPath();
+              ctx.moveTo(batsmanX, batsmanY - 5);
+              ctx.lineTo(batsmanX + dx, batsmanY - 5 + dy);
+              ctx.lineWidth = 3;
+              ctx.strokeStyle = color;
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect]);
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
@@ -933,7 +1046,7 @@
           ),
           React.createElement('div', { className: "bg-gray-800/40 rounded-2xl p-4 backdrop-blur-sm" },
             React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "📹 VIDEO COMMENTARY (Broadcast)"),
-            React.createElement('canvas', { ref: canvasRef, width: 550, height: 360, className: "w-full h-auto rounded-xl border border-teal-500/40", style: { aspectRatio: '550/360' } }),
+            React.createElement('canvas', { ref: canvasRef, width: 600, height: 400, className: "w-full h-auto rounded-xl border border-teal-500/40", style: { aspectRatio: '600/400' } }),
             React.createElement('div', { className: "flex flex-wrap gap-2 mt-4" },
               !isRecording ? React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "🔴 Start Recording")
                 : React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1.5 rounded-full" }, "⏹️ Stop & Save"),
