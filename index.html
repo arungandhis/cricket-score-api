@@ -532,7 +532,7 @@
       const startGuardRef = React.useRef(false);
       const introPlayedRef = React.useRef(false);
       const firstInningsSummaryTriggeredRef = React.useRef(false);
-      const matchSummaryTriggeredRef = React.useRef(false); // for end-of-match summary
+      const matchSummaryTriggeredRef = React.useRef(false);
 
       // Visual effect state for video canvas
       const [effect, setEffect] = React.useState(null);
@@ -656,6 +656,15 @@
         }
       }, [currentInningsIdx, inningsData, firstInningsStats]);
 
+      // AUTO-TRIGGER: when match finishes, show summary immediately
+      React.useEffect(() => {
+        if (isMatchFinished && firstInningsStats) {
+          showFullMatchSummary();
+          // Also ensure auto-play stops
+          setIsPlaying(false);
+        }
+      }, [isMatchFinished, firstInningsStats]);
+
       const addCommentaryEntry = function(delivery, idx) {
         const commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target);
         const ballDesc = `Innings ${currentInningsIdx+1} • Over ${delivery.over}.${delivery.ball} • ${delivery.striker} • ${delivery.bowler} → ${commentaryText}${delivery.wicket ? " 🚨 WICKET!" : ""}`;
@@ -676,17 +685,9 @@
       };
 
       const advanceToNextBall = React.useCallback(function() {
-        // If match is finished (second innings target reached, overs completed, or all out), end match
+        // If match is finished, stop playing (no further balls)
         if (isMatchFinished) {
           setIsPlaying(false);
-          // Ensure summary is shown
-          if (firstInningsStats) {
-            showFullMatchSummary();
-          }
-          if (!muteAudio) {
-            const result = matchState.totalRuns >= target ? "wins" : "loses";
-            speakWithCallback(`Match finished! ${currentInnings.team} ${result} by ${Math.abs(matchState.totalRuns - target)} runs.`, 0, function() {});
-          }
           return;
         }
 
@@ -739,7 +740,7 @@
             speakWithCallback(fullText, excitementLevel, function() { setIsSpeaking(false); });
           }
         }
-      }, [currentBallIdx, deliveries, totalDeliveries, currentInningsIdx, matchState, isInningsFinished, isMatchFinished, target, inningsData, currentInnings, muteAudio, firstInningsStats]);
+      }, [currentBallIdx, deliveries, totalDeliveries, currentInningsIdx, matchState, isInningsFinished, isMatchFinished, target, inningsData, currentInnings, muteAudio]);
 
       var manualNextBall = function() {
         if (isSpeaking && window.speechSynthesis) {
