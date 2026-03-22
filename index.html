@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Broadcast Graphics with Voice Selector</title>
+  <title>Cricket Live Studio – Broadcast Graphics with Stadium Ambience</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -163,7 +163,164 @@
       return `${runs} runs taken.`;
     };
 
-    // Voice selection (global)
+    // --------------------------------------------------------------
+    // Audio Context for stadium ambience
+    // --------------------------------------------------------------
+    let audioCtx = null;
+    let murmurSource = null;
+    let murmurGain = null;
+    let isAmbienceEnabled = true;
+    let ambientGainNode = null;
+
+    const initAudio = () => {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Create gain node for overall ambience volume
+      ambientGainNode = audioCtx.createGain();
+      ambientGainNode.gain.value = 0.15; // low-level background
+      ambientGainNode.connect(audioCtx.destination);
+    };
+
+    const startCrowdMurmur = () => {
+      if (!audioCtx) return;
+      if (murmurSource) {
+        try { murmurSource.stop(); } catch(e) {}
+        murmurSource = null;
+      }
+      // Generate filtered noise for crowd murmur
+      const bufferSize = 4096;
+      const noiseNode = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+      noiseNode.onaudioprocess = (e) => {
+        const output = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = (Math.random() * 2 - 1) * 0.2;
+        }
+      };
+      // Filter to make it low-frequency rumble
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 500;
+      filter.Q.value = 1;
+      // Gain for murmur
+      const murmurGainNode = audioCtx.createGain();
+      murmurGainNode.gain.value = 0.1;
+      noiseNode.connect(filter);
+      filter.connect(murmurGainNode);
+      murmurGainNode.connect(ambientGainNode);
+      murmurSource = { node: noiseNode, filter, gain: murmurGainNode };
+      noiseNode.connect(filter);
+    };
+
+    const stopCrowdMurmur = () => {
+      if (murmurSource) {
+        try { murmurSource.node.disconnect(); } catch(e) {}
+        murmurSource = null;
+      }
+    };
+
+    // Trigger reaction sound
+    const playReaction = (type) => {
+      if (!audioCtx || !isAmbienceEnabled) return;
+      // Resume audio context if suspended (browser policy)
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const now = audioCtx.currentTime;
+      const gain = audioCtx.createGain();
+      gain.connect(ambientGainNode);
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
+      
+      if (type === 'cheer') {
+        // Create a burst of filtered noise with rising pitch
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 200;
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.5);
+        const noise = audioCtx.createBufferSource();
+        const bufferSize = 2048;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        noise.buffer = buffer;
+        noise.loop = true;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 800;
+        filter.Q.value = 5;
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.value = 0.3;
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(gain);
+        osc.connect(gain);
+        osc.start();
+        noise.start();
+        osc.stop(now + 1.2);
+        noise.stop(now + 1.2);
+        setTimeout(() => {
+          try { osc.disconnect(); noise.disconnect(); } catch(e) {}
+        }, 1500);
+      } else if (type === 'applause') {
+        // Rapid clicks
+        const duration = 1.2;
+        const interval = 0.05;
+        let time = now;
+        for (let i = 0; i < duration / interval; i++) {
+          const clickGain = audioCtx.createGain();
+          clickGain.connect(gain);
+          clickGain.gain.setValueAtTime(0.15, time);
+          clickGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
+          const osc = audioCtx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.value = 1500 + Math.random() * 500;
+          osc.connect(clickGain);
+          osc.start(time);
+          osc.stop(time + 0.05);
+          time += interval;
+        }
+      } else if (type === 'gasp') {
+        // Descending noise sweep
+        const noise = audioCtx.createBufferSource();
+        const bufferSize = 2048;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        noise.buffer = buffer;
+        noise.loop = false;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+        filter.frequency.exponentialRampToValueAtTime(100, now + 0.8);
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.value = 0.3;
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(gain);
+        noise.start();
+        noise.stop(now + 0.8);
+      }
+    };
+
+    // Start/stop ambience
+    const setAmbience = (enabled) => {
+      isAmbienceEnabled = enabled;
+      if (!audioCtx) return;
+      if (enabled) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        startCrowdMurmur();
+      } else {
+        stopCrowdMurmur();
+      }
+    };
+
+    // --------------------------------------------------------------
+    // Voice selection (unchanged)
+    // --------------------------------------------------------------
     let selectedVoice = null;
     let availableVoices = [];
 
@@ -173,11 +330,9 @@
         const load = () => {
           availableVoices = synth.getVoices().filter(v => v.lang.startsWith('en'));
           if (availableVoices.length === 0) {
-            // fallback to any voice
             availableVoices = synth.getVoices();
           }
           if (!selectedVoice && availableVoices.length) {
-            // pick default: Indian English if available, else first English
             selectedVoice = availableVoices.find(v => v.lang === 'en-IN') || availableVoices[0];
           }
           resolve(availableVoices);
@@ -187,7 +342,6 @@
       });
     };
 
-    // Speech function with selected voice
     let currentUtterance = null;
     const speakWithCallback = async (text, excitementLevel, onEnd) => {
       if (!window.speechSynthesis) {
@@ -540,6 +694,9 @@
       const firstInningsSummaryTriggeredRef = React.useRef(false);
       const matchSummaryTriggeredRef = React.useRef(false);
 
+      // Ambient sound state
+      const [ambientEnabled, setAmbientEnabled] = React.useState(true);
+
       // Voice selector state
       const [voices, setVoices] = React.useState([]);
       const [selectedVoiceName, setSelectedVoiceName] = React.useState('');
@@ -584,7 +741,7 @@
       // For second innings, also check if target reached
       const isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Load voices
+      // Load voices and initialize audio
       React.useEffect(() => {
         loadVoices().then(vs => {
           setVoices(vs);
@@ -592,7 +749,30 @@
             setSelectedVoiceName(selectedVoice.name);
           }
         });
+        // Initialize audio context on first user interaction (will be called later)
+        const initAudioOnInteraction = () => {
+          if (!audioCtx) {
+            initAudio();
+            if (ambientEnabled) {
+              setAmbience(true);
+            }
+          }
+          document.removeEventListener('click', initAudioOnInteraction);
+        };
+        document.addEventListener('click', initAudioOnInteraction);
+        return () => document.removeEventListener('click', initAudioOnInteraction);
       }, []);
+
+      // Update ambient sound when toggle changes
+      React.useEffect(() => {
+        if (audioCtx) {
+          if (ambientEnabled) {
+            setAmbience(true);
+          } else {
+            setAmbience(false);
+          }
+        }
+      }, [ambientEnabled]);
 
       // Update selected voice when dropdown changes
       const handleVoiceChange = (e) => {
@@ -601,6 +781,10 @@
           selectedVoice = newVoice;
           setSelectedVoiceName(newVoice.name);
         }
+      };
+
+      const toggleAmbience = () => {
+        setAmbientEnabled(!ambientEnabled);
       };
 
       // Helper to add summary entries
@@ -637,6 +821,8 @@
         if (!muteAudio) {
           speakWithCallback(summary, 1, () => {});
         }
+        // Also trigger applause for end of innings
+        if (ambientEnabled) playReaction('applause');
       };
 
       // Full match summary (uses last names in audio)
@@ -666,6 +852,7 @@
         if (!muteAudio) {
           speakWithCallback(resultText, 2, () => {});
         }
+        if (ambientEnabled) playReaction('cheer');
       };
 
       // Store first innings stats after first innings ends (used for display and later summary)
@@ -701,8 +888,9 @@
         return commentaryText;
       };
 
-      // Trigger visual effect on canvas
-      const triggerEffect = (runs, isWicket) => {
+      // Trigger visual effect and ambient reaction
+      const triggerEffectAndReaction = (runs, isWicket) => {
+        // Visual effect
         if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
         let type = 'normal';
         if (isWicket) type = 'wicket';
@@ -711,6 +899,17 @@
         else if (runs === 0) type = 'dot';
         setEffect({ type, startTime: Date.now() });
         effectTimeoutRef.current = setTimeout(() => setEffect(null), 1000);
+
+        // Audio reaction
+        if (ambientEnabled && !muteAudio) {
+          if (isWicket) {
+            playReaction('gasp');
+          } else if (runs === 4 || runs === 6) {
+            playReaction('cheer');
+          } else if (runs === 0) {
+            // maybe a light groan? we'll skip for now
+          }
+        }
       };
 
       const advanceToNextBall = React.useCallback(function() {
@@ -758,7 +957,7 @@
           var nextDelivery = deliveries[nextIdx];
           setCurrentBallIdx(nextIdx);
           var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
-          triggerEffect(nextDelivery.runs, nextDelivery.wicket);
+          triggerEffectAndReaction(nextDelivery.runs, nextDelivery.wicket);
           if (!muteAudio) {
             var intro = `${getLastName(nextDelivery.striker)} facing ${getLastName(nextDelivery.bowler)}. `;
             var fullText = intro + commentaryText;
@@ -865,7 +1064,7 @@
           var firstDelivery = deliveries[0];
           setCurrentBallIdx(0);
           var commentary = addCommentaryEntry(firstDelivery, 0);
-          triggerEffect(firstDelivery.runs, firstDelivery.wicket);
+          triggerEffectAndReaction(firstDelivery.runs, firstDelivery.wicket);
           if (!muteAudio) {
             var intro = `${getLastName(firstDelivery.striker)} facing ${getLastName(firstDelivery.bowler)}. `;
             var excitementLevel = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 1 : 0;
@@ -1150,7 +1349,8 @@
                   voices.map(v => React.createElement('option', { key: v.name, value: v.name }, v.name + (v.lang ? ` (${v.lang})` : '')))
                 )
               ),
-              React.createElement('button', { onClick: () => setMuteAudio(!muteAudio), className: `px-3 py-1 rounded-md text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}` }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On")
+              React.createElement('button', { onClick: () => setMuteAudio(!muteAudio), className: `px-3 py-1 rounded-md text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}` }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
+              React.createElement('button', { onClick: toggleAmbience, className: `px-3 py-1 rounded-md text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}` }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off")
             ),
             React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
               React.createElement('h3', { className: "font-bold text-teal-300 mb-2" }, "🎙️ LIVE COMMENTARY"),
