@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Stable Broadcast Graphics</title>
+  <title>Cricket Live Studio – Professional Audio Mix</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -23,7 +23,6 @@
   <div id="error-message" style="display: none;"></div>
 
   <script>
-    // Global error handler
     window.onerror = function(msg, url, line, col, error) {
       var errDiv = document.getElementById('error-message');
       if (errDiv) {
@@ -61,7 +60,7 @@
     };
 
     // --------------------------------------------------------------
-    // Commentary generation (simplified but expressive)
+    // Realistic commentary generator
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
       var runs = delivery.runs;
@@ -123,13 +122,252 @@
     };
 
     // --------------------------------------------------------------
-    // TTS with expressive styles, pauses, pitch variation
+    // Professional Audio Processing Chain
     // --------------------------------------------------------------
-    var selectedVoice = null;
-    var availableVoices = [];
-    var speechQueue = [];
-    var isSpeaking = false;
+    let audioCtx = null;
+    let masterChainIn = null;   // input to the chain
+    let noiseFloorNode = null;
+    let crowdPannerL = null, crowdPannerR = null;
+    let eqNodes = [];
+    let compressor = null;
+    let masterGain = null;
+    let isAmbienceEnabled = true;
 
+    function initAudio() {
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Build processing chain: input -> eq -> compressor -> master gain
+      compressor = audioCtx.createDynamicsCompressor();
+      compressor.threshold.value = -1;
+      compressor.knee.value = 0;
+      compressor.ratio.value = 20;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.1;
+      
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = 1.0;
+      compressor.connect(masterGain);
+      
+      // EQ chain
+      const highpass = audioCtx.createBiquadFilter();
+      highpass.type = 'highpass';
+      highpass.frequency.value = 80;
+      const cutMud = audioCtx.createBiquadFilter();
+      cutMud.type = 'peaking';
+      cutMud.frequency.value = 250;
+      cutMud.gain.value = -3;
+      cutMud.Q.value = 1.2;
+      const boostClarity = audioCtx.createBiquadFilter();
+      boostClarity.type = 'peaking';
+      boostClarity.frequency.value = 4000;
+      boostClarity.gain.value = 4;
+      boostClarity.Q.value = 1;
+      const sparkle = audioCtx.createBiquadFilter();
+      sparkle.type = 'highshelf';
+      sparkle.frequency.value = 10000;
+      sparkle.gain.value = 2;
+      
+      eqNodes = [highpass, cutMud, boostClarity, sparkle];
+      for (let i = 0; i < eqNodes.length - 1; i++) {
+        eqNodes[i].connect(eqNodes[i+1]);
+      }
+      eqNodes[eqNodes.length-1].connect(compressor);
+      
+      masterChainIn = eqNodes[0];  // input point
+      
+      // Noise floor (pink noise at -55 dB)
+      const noiseBufferSize = 4096;
+      const noiseNode = audioCtx.createScriptProcessor(noiseBufferSize, 1, 1);
+      noiseNode.onaudioprocess = function(e) {
+        const output = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < noiseBufferSize; i++) {
+          // simple pink approximation
+          let white = Math.random() * 2 - 1;
+          output[i] = white * 0.002; // approx -55 dB
+        }
+      };
+      const noiseGain = audioCtx.createGain();
+      noiseGain.gain.value = 0.002;
+      noiseNode.connect(noiseGain);
+      noiseGain.connect(masterChainIn);
+      noiseFloorNode = noiseNode;
+      
+      // Stereo panners for crowd
+      crowdPannerL = audioCtx.createStereoPanner();
+      crowdPannerL.pan.value = -0.4;
+      crowdPannerR = audioCtx.createStereoPanner();
+      crowdPannerR.pan.value = 0.4;
+      
+      masterGain.connect(audioCtx.destination);
+    }
+    
+    function connectToMaster(source) {
+      if (!masterChainIn) return;
+      source.connect(masterChainIn);
+    }
+    
+    // --------------------------------------------------------------
+    // Crowd murmur (continuous)
+    // --------------------------------------------------------------
+    let murmurSource = null;
+    let murmurGainNode = null;
+    function startCrowdMurmur() {
+      if (!audioCtx || murmurSource) return;
+      const bufferSize = 4096;
+      const noiseNode = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+      noiseNode.onaudioprocess = function(e) {
+        const output = e.outputBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = (Math.random() * 2 - 1) * 0.15;
+        }
+      };
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 800;
+      filter.Q.value = 1;
+      const gain = audioCtx.createGain();
+      gain.gain.value = 0.045; // ~ -28 dB
+      noiseNode.connect(filter);
+      filter.connect(gain);
+      // Split to left/right with stereo panners
+      const leftGain = audioCtx.createGain();
+      const rightGain = audioCtx.createGain();
+      gain.connect(leftGain);
+      gain.connect(rightGain);
+      leftGain.connect(crowdPannerL);
+      rightGain.connect(crowdPannerR);
+      crowdPannerL.connect(masterChainIn);
+      crowdPannerR.connect(masterChainIn);
+      murmurSource = noiseNode;
+      murmurGainNode = gain;
+    }
+    
+    function stopCrowdMurmur() {
+      if (murmurSource) {
+        try { murmurSource.disconnect(); } catch(e) {}
+        murmurSource = null;
+      }
+    }
+    
+    function setAmbience(enabled) {
+      isAmbienceEnabled = enabled;
+      if (!audioCtx) return;
+      if (enabled) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        startCrowdMurmur();
+      } else {
+        stopCrowdMurmur();
+      }
+    }
+    
+    // --------------------------------------------------------------
+    // Reaction sounds (directional, with appropriate gain)
+    // --------------------------------------------------------------
+    function playReaction(type) {
+      if (!audioCtx || !isAmbienceEnabled) return;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const now = audioCtx.currentTime;
+      const gain = audioCtx.createGain();
+      gain.connect(masterChainIn);
+      
+      let targetGain = 0;
+      let pan = 0;
+      let duration = 1.2;
+      if (type === 'cheer') {
+        targetGain = 0.35; // +8 dB
+        pan = 0.2;
+        duration = 1.5;
+      } else if (type === 'applause') {
+        targetGain = 0.2;  // +4 dB
+        pan = -0.1;
+        duration = 1.2;
+      } else if (type === 'gasp') {
+        targetGain = 0.1;   // -2 dB
+        pan = 0;
+        duration = 0.8;
+      }
+      gain.gain.setValueAtTime(targetGain, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      
+      const panner = audioCtx.createStereoPanner();
+      panner.pan.value = pan;
+      gain.connect(panner);
+      panner.connect(masterChainIn);
+      
+      if (type === 'cheer') {
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = 200;
+        osc.frequency.exponentialRampToValueAtTime(600, now + 0.5);
+        const noise = audioCtx.createBufferSource();
+        const bufferSize = 2048;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        noise.buffer = buffer;
+        noise.loop = true;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 800;
+        filter.Q.value = 5;
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.value = 0.6;
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(gain);
+        osc.connect(gain);
+        osc.start();
+        noise.start();
+        osc.stop(now + 1.2);
+        noise.stop(now + 1.2);
+      } else if (type === 'applause') {
+        const duration2 = 1.2;
+        const interval = 0.05;
+        let time = now;
+        for (let i = 0; i < duration2 / interval; i++) {
+          const clickGain = audioCtx.createGain();
+          clickGain.connect(gain);
+          clickGain.gain.setValueAtTime(0.2, time);
+          clickGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
+          const osc = audioCtx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.value = 1500 + Math.random() * 500;
+          osc.connect(clickGain);
+          osc.start(time);
+          osc.stop(time + 0.05);
+          time += interval;
+        }
+      } else if (type === 'gasp') {
+        const noise = audioCtx.createBufferSource();
+        const bufferSize = 2048;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        noise.buffer = buffer;
+        noise.loop = false;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+        filter.frequency.exponentialRampToValueAtTime(100, now + 0.8);
+        const noiseGain = audioCtx.createGain();
+        noiseGain.gain.value = 0.4;
+        noise.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(gain);
+        noise.start();
+        noise.stop(now + 0.8);
+      }
+    }
+    
+    // --------------------------------------------------------------
+    // Speech with breath samples and micro-pauses
+    // --------------------------------------------------------------
+    let selectedVoice = null;
+    let availableVoices = [];
+    let speechQueue = [];
+    let isSpeaking = false;
+    
     function loadVoices() {
       return new Promise(function(resolve) {
         var synth = window.speechSynthesis;
@@ -152,37 +390,54 @@
         else synth.addEventListener('voiceschanged', load);
       });
     }
-
-    function processQueue() {
-      if (speechQueue.length === 0 || isSpeaking) return;
-      var item = speechQueue.shift();
-      isSpeaking = true;
-      speakText(item.text, item.style, function() {
-        isSpeaking = false;
-        if (item.onEnd) item.onEnd();
-        processQueue();
-      });
+    
+    // Generate a short breath sample (filtered noise)
+    function playBreath(duration, onEnd) {
+      if (!audioCtx) {
+        if (onEnd) onEnd();
+        return;
+      }
+      const now = audioCtx.currentTime;
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 600;
+      filter.Q.value = 3;
+      const noise = audioCtx.createBufferSource();
+      const bufferSize = 1024;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      noise.buffer = buffer;
+      noise.loop = true;
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterChainIn);
+      noise.start();
+      noise.stop(now + duration);
+      if (onEnd) setTimeout(onEnd, duration * 1000);
     }
-
+    
     function speakText(text, style, callback) {
       var synth = window.speechSynthesis;
       if (!synth) {
         if (callback) callback();
         return;
       }
-      // Split into sentences
       var sentences = text.match(/[^.!?]+[.!?]/g) || [text];
       if (sentences.length === 0) {
         if (callback) callback();
         return;
       }
-
+      
       var styleParams = {
-        normal: { baseRate: 0.9, basePitch: 0.95, gap: 120 },
-        excited: { baseRate: 1.05, basePitch: 1.1, gap: 80 },
-        dramatic: { baseRate: 1.1, basePitch: 1.15, gap: 150 }
-      }[style] || { baseRate: 0.9, basePitch: 0.95, gap: 120 };
-
+        normal: { baseRate: 0.9, basePitch: 0.95, gap: 120, breathChance: 0.2, microPauseBefore: false },
+        excited: { baseRate: 1.05, basePitch: 1.1, gap: 80, breathChance: 0.1, microPauseBefore: false },
+        dramatic: { baseRate: 1.1, basePitch: 1.15, gap: 150, breathChance: 0.25, microPauseBefore: true }
+      }[style] || { baseRate: 0.9, basePitch: 0.95, gap: 120, breathChance: 0.2, microPauseBefore: false };
+      
       var index = 0;
       function speakNext() {
         if (index >= sentences.length) {
@@ -195,33 +450,44 @@
           speakNext();
           return;
         }
-        var utterance = new SpeechSynthesisUtterance(sentence);
-        if (selectedVoice) utterance.voice = selectedVoice;
-        var randomFactor = 1 + (Math.random() - 0.5) * 0.04;
-        utterance.rate = styleParams.baseRate;
-        utterance.pitch = styleParams.basePitch * randomFactor;
-        utterance.volume = 1;
-        utterance.onend = function() {
-          index++;
-          if (index < sentences.length) {
+        // Add micro‑pause before the first sentence if dramatic
+        if (index === 0 && styleParams.microPauseBefore) {
+          setTimeout(() => {
+            speakSentence(sentence, index);
+          }, 200);
+        } else {
+          speakSentence(sentence, index);
+        }
+        
+        function speakSentence(sentence, idx) {
+          var utterance = new SpeechSynthesisUtterance(sentence);
+          if (selectedVoice) utterance.voice = selectedVoice;
+          var randomFactor = 1 + (Math.random() - 0.5) * 0.04;
+          utterance.rate = styleParams.baseRate;
+          utterance.pitch = styleParams.basePitch * randomFactor;
+          utterance.volume = 1;
+          utterance.onend = function() {
+            idx++;
+            // Add natural gap, possibly a breath
+            var gapMs = styleParams.gap;
+            if (idx < sentences.length && Math.random() < styleParams.breathChance) {
+              playBreath(0.25, function() {
+                setTimeout(speakNext, 50);
+              });
+            } else {
+              setTimeout(speakNext, gapMs);
+            }
+          };
+          utterance.onerror = function() {
+            idx++;
             setTimeout(speakNext, styleParams.gap);
-          } else {
-            if (callback) callback();
-          }
-        };
-        utterance.onerror = function() {
-          index++;
-          if (index < sentences.length) {
-            setTimeout(speakNext, styleParams.gap);
-          } else {
-            if (callback) callback();
-          }
-        };
-        synth.speak(utterance);
+          };
+          synth.speak(utterance);
+        }
       }
       speakNext();
     }
-
+    
     function speakWithCallback(text, style, onEnd) {
       if (!text) {
         if (onEnd) onEnd();
@@ -230,7 +496,18 @@
       speechQueue.push({ text: text, style: style, onEnd: onEnd });
       processQueue();
     }
-
+    
+    function processQueue() {
+      if (speechQueue.length === 0 || isSpeaking) return;
+      var item = speechQueue.shift();
+      isSpeaking = true;
+      speakText(item.text, item.style, function() {
+        isSpeaking = false;
+        if (item.onEnd) item.onEnd();
+        processQueue();
+      });
+    }
+    
     function clearSpeechQueue() {
       var synth = window.speechSynthesis;
       if (synth) synth.cancel();
@@ -239,142 +516,7 @@
     }
 
     // --------------------------------------------------------------
-    // Audio Context for stadium ambience (simplified, safe)
-    // --------------------------------------------------------------
-    var audioCtx = null;
-    var ambientGainNode = null;
-    var murmurSource = null;
-    var isAmbienceEnabled = true;
-
-    function initAudio() {
-      if (audioCtx) return;
-      try {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        ambientGainNode = audioCtx.createGain();
-        ambientGainNode.gain.value = 0.15;
-        ambientGainNode.connect(audioCtx.destination);
-      } catch(e) {
-        console.warn("Web Audio not supported", e);
-      }
-    }
-
-    function startCrowdMurmur() {
-      if (!audioCtx || murmurSource) return;
-      var bufferSize = 4096;
-      var noiseNode = audioCtx.createScriptProcessor(bufferSize, 1, 1);
-      noiseNode.onaudioprocess = function(e) {
-        var output = e.outputBuffer.getChannelData(0);
-        for (var i = 0; i < bufferSize; i++) {
-          output[i] = (Math.random() * 2 - 1) * 0.2;
-        }
-      };
-      var filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 500;
-      filter.Q.value = 1;
-      var murmurGainNode = audioCtx.createGain();
-      murmurGainNode.gain.value = 0.1;
-      noiseNode.connect(filter);
-      filter.connect(murmurGainNode);
-      murmurGainNode.connect(ambientGainNode);
-      murmurSource = noiseNode;
-      noiseNode.connect(filter);
-    }
-
-    function stopCrowdMurmur() {
-      if (murmurSource) {
-        try { murmurSource.disconnect(); } catch(e) {}
-        murmurSource = null;
-      }
-    }
-
-    function playReaction(type) {
-      if (!audioCtx || !isAmbienceEnabled) return;
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-      var now = audioCtx.currentTime;
-      var gain = audioCtx.createGain();
-      gain.connect(ambientGainNode);
-      gain.gain.setValueAtTime(0.4, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
-
-      if (type === 'cheer') {
-        var osc = audioCtx.createOscillator();
-        osc.type = 'sawtooth';
-        osc.frequency.value = 200;
-        osc.frequency.exponentialRampToValueAtTime(600, now + 0.5);
-        var noise = audioCtx.createBufferSource();
-        var bufferSize = 2048;
-        var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        var data = buffer.getChannelData(0);
-        for (var i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        noise.buffer = buffer;
-        noise.loop = true;
-        var filter = audioCtx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.frequency.value = 800;
-        filter.Q.value = 5;
-        var noiseGain = audioCtx.createGain();
-        noiseGain.gain.value = 0.3;
-        noise.connect(filter);
-        filter.connect(noiseGain);
-        noiseGain.connect(gain);
-        osc.connect(gain);
-        osc.start();
-        noise.start();
-        osc.stop(now + 1.2);
-        noise.stop(now + 1.2);
-      } else if (type === 'applause') {
-        var duration = 1.2;
-        var interval = 0.05;
-        var time = now;
-        for (var i = 0; i < duration / interval; i++) {
-          var clickGain = audioCtx.createGain();
-          clickGain.connect(gain);
-          clickGain.gain.setValueAtTime(0.15, time);
-          clickGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
-          var osc2 = audioCtx.createOscillator();
-          osc2.type = 'sine';
-          osc2.frequency.value = 1500 + Math.random() * 500;
-          osc2.connect(clickGain);
-          osc2.start(time);
-          osc2.stop(time + 0.05);
-          time += interval;
-        }
-      } else if (type === 'gasp') {
-        var noise2 = audioCtx.createBufferSource();
-        var bufferSize2 = 2048;
-        var buffer2 = audioCtx.createBuffer(1, bufferSize2, audioCtx.sampleRate);
-        var data2 = buffer2.getChannelData(0);
-        for (var i = 0; i < bufferSize2; i++) data2[i] = Math.random() * 2 - 1;
-        noise2.buffer = buffer2;
-        noise2.loop = false;
-        var filter2 = audioCtx.createBiquadFilter();
-        filter2.type = 'lowpass';
-        filter2.frequency.value = 800;
-        filter2.frequency.exponentialRampToValueAtTime(100, now + 0.8);
-        var noiseGain2 = audioCtx.createGain();
-        noiseGain2.gain.value = 0.3;
-        noise2.connect(filter2);
-        filter2.connect(noiseGain2);
-        noiseGain2.connect(gain);
-        noise2.start();
-        noise2.stop(now + 0.8);
-      }
-    }
-
-    function setAmbience(enabled) {
-      isAmbienceEnabled = enabled;
-      if (!audioCtx) return;
-      if (enabled) {
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        startCrowdMurmur();
-      } else {
-        stopCrowdMurmur();
-      }
-    }
-
-    // --------------------------------------------------------------
-    // Parser (unchanged)
+    // Parser and match simulation (same as before, but with new audio calls)
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -695,7 +837,6 @@
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Load voices and init audio
       React.useEffect(function() {
         loadVoices().then(function(vs) {
           setVoices(vs);
