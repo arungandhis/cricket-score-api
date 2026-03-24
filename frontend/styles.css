@@ -1,0 +1,66 @@
+* {
+  font-family: 'Inter', sans-serif;
+}
+.commentary-text {
+  font-family: 'JetBrains Mono', monospace;
+}
+canvas {
+  box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3);
+  border-radius: 1rem;
+  background: #0a1f1e;
+}
+.error-bar {
+  background: #ff4444;
+  color: white;
+  padding: 12px;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  text-align: center;
+  z-index: 1000;
+  font-size: 14px;
+}
+.stats-table {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.stats-table table {
+  min-width: 500px;
+}
+.result-banner {
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+select {
+  background: #1f2937;
+  color: white;
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+.settings-panel {
+  background: #1f2937;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+.settings-panel input,
+.settings-panel select {
+  background: #374151;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+.settings-panel button {
+  background: #2dd4bf;
+  color: #111;
+  font-size: 0.7rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+}
