@@ -771,7 +771,7 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Settings UI initialization
+      // Settings UI initialization (with error handling)
       React.useEffect(function() {
         try {
           const apiInput = document.getElementById('apiKeyInput');
@@ -802,7 +802,9 @@
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ apiKey: key })
                 });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
                 const voices = await response.json();
                 const select = document.getElementById('voiceSelect');
                 if (select) {
@@ -817,7 +819,7 @@
                 }
               } catch (err) {
                 console.error(err);
-                alert('Could not fetch voices. Check your API key and backend.');
+                alert('Could not fetch voices: ' + err.message);
               }
             };
           }
