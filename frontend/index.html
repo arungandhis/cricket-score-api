@@ -16,6 +16,9 @@
     .result-banner { animation: pulse 1s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
     select { background: #1f2937; color: white; border-radius: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+    .settings-panel { background: #1f2937; border-radius: 0.75rem; padding: 0.75rem; margin-top: 0.5rem; }
+    .settings-panel input, .settings-panel select { background: #374151; color: white; border: none; border-radius: 0.375rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+    .settings-panel button { background: #2dd4bf; color: #111; font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; }
   </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
@@ -122,14 +125,23 @@
     };
 
     // --------------------------------------------------------------
-    // TTS via backend (with queue)
+    // TTS via backend (with queue) – now includes API key and voice ID
     // --------------------------------------------------------------
-    //const BACKEND_URL = 'https://your-tts-backend.onrender.com'; // REPLACE with actual backend URL
-    const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com';
-    
+    const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com'; // Replace if needed
     let audioPlayer = null;
     let audioQueue = [];
     let isAudioPlaying = false;
+
+    // Stored settings
+    let storedApiKey = localStorage.getItem('elevenlabs_api_key') || '';
+    let storedVoiceId = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM'; // default Rachel
+
+    function updateTtsSettings(apiKey, voiceId) {
+      storedApiKey = apiKey;
+      storedVoiceId = voiceId;
+      localStorage.setItem('elevenlabs_api_key', apiKey);
+      localStorage.setItem('elevenlabs_voice_id', voiceId);
+    }
 
     function playAudio(url, onEnd) {
       if (audioPlayer) {
@@ -162,10 +174,20 @@
         if (onEnd) onEnd();
         return;
       }
+      if (!storedApiKey) {
+        console.warn('No API key set. Please enter your ElevenLabs API key in Settings.');
+        if (onEnd) onEnd();
+        return;
+      }
       fetch(`${BACKEND_URL}/speak`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, style })
+        body: JSON.stringify({
+          text,
+          style,
+          apiKey: storedApiKey,
+          voiceId: storedVoiceId
+        })
       })
       .then(response => {
         if (!response.ok) throw new Error('TTS failed');
@@ -192,7 +214,7 @@
     }
 
     // --------------------------------------------------------------
-    // Audio Context for stadium ambience (simplified, robust)
+    // Audio Context for stadium ambience (simplified)
     // --------------------------------------------------------------
     let audioCtx = null;
     let masterGain = null;
@@ -209,7 +231,6 @@
       masterGain.gain.value = 1;
       masterGain.connect(audioCtx.destination);
       
-      // Simple EQ chain: highpass, low-mid cut, clarity boost, high shelf
       const highpass = audioCtx.createBiquadFilter();
       highpass.type = 'highpass';
       highpass.frequency.value = 80;
@@ -235,12 +256,6 @@
       eqChain[eqChain.length-1].connect(masterGain);
     }
 
-    function connectToMaster(source) {
-      if (!eqChain[0]) return;
-      source.connect(eqChain[0]);
-    }
-
-    // Crowd murmur (starts once)
     function startCrowdMurmur() {
       if (!audioCtx || murmurStarted) return;
       murmurStarted = true;
@@ -283,7 +298,6 @@
       }
     }
 
-    // Reaction with debounce (max one per 500ms)
     function playReaction(type) {
       if (!audioCtx || !isAmbienceEnabled) return;
       const now = Date.now();
@@ -675,8 +689,6 @@
       var matchSummaryTriggeredRef = React.useRef(false);
 
       var [ambientEnabled, setAmbientEnabled] = React.useState(true);
-      var [voices, setVoices] = React.useState([]);
-      var [selectedVoiceName, setSelectedVoiceName] = React.useState('');
 
       // Animation states
       var [batsmanAnim, setBatsmanAnim] = React.useState({ active: false, type: 'idle', startTime: 0 });
@@ -709,10 +721,8 @@
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Load voices and init audio (same as before)
+      // Load audio and set up UI
       React.useEffect(function() {
-        // Voice loading is not needed for backend TTS, but we keep for UI
-        setVoices([]);
         var initAudioOnInteraction = function() {
           if (!audioCtx) {
             initAudio();
@@ -724,13 +734,70 @@
         return function() { document.removeEventListener('click', initAudioOnInteraction); };
       }, []);
 
-      // Apply ambience setting (respect mute)
+      // Apply ambience (respect mute)
       React.useEffect(function() {
         if (audioCtx) {
           if (ambientEnabled && !muteAudio) setAmbience(true);
           else setAmbience(false);
         }
       }, [ambientEnabled, muteAudio]);
+
+      // Settings UI initialization
+      React.useEffect(function() {
+        const apiInput = document.getElementById('apiKeyInput');
+        const voiceSelect = document.getElementById('voiceSelect');
+        const refreshBtn = document.getElementById('refreshVoicesBtn');
+        const showSettingsBtn = document.getElementById('showSettingsBtn');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+
+        if (apiInput) apiInput.value = storedApiKey;
+        if (voiceSelect && storedVoiceId) voiceSelect.value = storedVoiceId;
+
+        if (showSettingsBtn) {
+          showSettingsBtn.onclick = () => {
+            if (settingsPanel) settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
+          };
+        }
+        if (refreshBtn) refreshBtn.onclick = async () => {
+          const key = document.getElementById('apiKeyInput').value;
+          if (!key) {
+            alert('Please enter your ElevenLabs API key first');
+            return;
+          }
+          try {
+            const response = await fetch(`${BACKEND_URL}/voices`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ apiKey: key })
+            });
+            if (!response.ok) throw new Error('Failed to fetch voices');
+            const voices = await response.json();
+            const select = document.getElementById('voiceSelect');
+            select.innerHTML = '<option value="">-- Select voice --</option>';
+            voices.forEach(voice => {
+              const option = document.createElement('option');
+              option.value = voice.voice_id;
+              option.textContent = `${voice.name} (${voice.labels?.accent || 'English'})`;
+              select.appendChild(option);
+            });
+            if (storedVoiceId) select.value = storedVoiceId;
+          } catch (err) {
+            console.error(err);
+            alert('Could not fetch voices. Check your API key.');
+          }
+        };
+        if (saveSettingsBtn) saveSettingsBtn.onclick = () => {
+          const key = document.getElementById('apiKeyInput').value;
+          const voiceId = document.getElementById('voiceSelect').value;
+          if (key && voiceId) {
+            updateTtsSettings(key, voiceId);
+            alert('Settings saved. You can now use the commentary.');
+          } else {
+            alert('Please enter both API key and select a voice.');
+          }
+        };
+      }, []);
 
       var toggleAmbience = function() { setAmbientEnabled(!ambientEnabled); };
       var toggleMute = function() { setMuteAudio(!muteAudio); };
@@ -838,7 +905,6 @@
         }
       };
 
-      // Animation trigger
       var triggerAnimations = function(runs, isWicket) {
         var now = Date.now();
         if (runs > 0 && !isWicket) {
@@ -1009,14 +1075,14 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Draw canvas with animations and fielders
+      // Draw canvas with animations
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
         var w = canvas.width, h = canvas.height;
 
-        // Background stadium gradient
+        // Background
         var grad = ctx.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, '#0b2b26');
         grad.addColorStop(1, '#051a17');
@@ -1040,25 +1106,20 @@
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
 
-        // Batsman position
+        // Batsman
         var batsmanX = pitchX + pitchW * 0.85 - 40;
         var batsmanY = pitchY + pitchH * 0.1 - 45;
-        // Bowler position
-        var bowlerX = pitchX + pitchW * 0.15 - 40;
-        var bowlerY = pitchY + pitchH * 0.9 - 45;
-
-        // Draw batsman body (circle)
         ctx.fillStyle = '#3b82f6';
         ctx.beginPath();
         ctx.arc(batsmanX + 40, batsmanY + 40, 30, 0, Math.PI * 2);
         ctx.fill();
 
-        // Bat animation (angle)
+        // Bat animation
         var batAngle = 0;
         if (batsmanAnim.active) {
           var elapsed = Math.min(1, (Date.now() - batsmanAnim.startTime) / 300);
           if (batsmanAnim.type === 'shot') {
-            batAngle = -Math.PI / 3 * (1 - elapsed); // swing forward then back
+            batAngle = -Math.PI / 3 * (1 - elapsed);
           } else if (batsmanAnim.type === 'miss') {
             batAngle = -Math.PI / 4 * (1 - elapsed);
           }
@@ -1070,13 +1131,15 @@
         ctx.fillRect(0, 0, 20, 5);
         ctx.restore();
 
-        // Draw bowler body (circle)
+        // Bowler
+        var bowlerX = pitchX + pitchW * 0.15 - 40;
+        var bowlerY = pitchY + pitchH * 0.9 - 45;
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(bowlerX + 40, bowlerY + 40, 30, 0, Math.PI * 2);
         ctx.fill();
 
-        // Bowler arm animation
+        // Bowler arm
         var armAngle = 0;
         if (bowlerAnim.active) {
           var elapsed = Math.min(1, (Date.now() - bowlerAnim.startTime) / 300);
@@ -1089,7 +1152,7 @@
         ctx.fillRect(0, 0, 30, 8);
         ctx.restore();
 
-        // Draw non‑striker (small circle)
+        // Non‑striker
         var nonStrikerX = pitchX + pitchW * 0.5 - 20;
         var nonStrikerY = pitchY + pitchH * 0.8;
         ctx.fillStyle = '#3b82f6';
@@ -1097,7 +1160,7 @@
         ctx.arc(nonStrikerX + 20, nonStrikerY + 20, 15, 0, Math.PI * 2);
         ctx.fill();
 
-        // Fielders (moving slightly)
+        // Fielders
         var fielders = [
           { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
         ];
@@ -1158,7 +1221,7 @@
         ctx.fillStyle = '#4b5563';
         ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
 
-        // Hit effect (radial burst)
+        // Hit effect (on top)
         if (effect) {
           var elapsed = (Date.now() - effect.startTime) / 1000;
           var alpha = Math.max(0, 1 - elapsed);
@@ -1275,7 +1338,27 @@
                 [1,2,4].map(function(sp) { return React.createElement('button', { key: sp, onClick: function() { setSpeed(sp); }, className: "px-3 py-1 rounded-md text-xs " + (speed === sp ? "bg-teal-600" : "bg-gray-700") }, sp + "x"); })
               ),
               React.createElement('button', { onClick: toggleMute, className: "px-3 py-1 rounded-md text-xs " + (muteAudio ? "bg-red-700" : "bg-teal-700") }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
-              React.createElement('button', { onClick: toggleAmbience, className: "px-3 py-1 rounded-md text-xs " + (ambientEnabled ? "bg-green-700" : "bg-gray-600") }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off")
+              React.createElement('button', { onClick: toggleAmbience, className: "px-3 py-1 rounded-md text-xs " + (ambientEnabled ? "bg-green-700" : "bg-gray-600") }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off"),
+              React.createElement('button', { id: "showSettingsBtn", className: "px-2 py-1 rounded-md text-xs bg-gray-600 hover:bg-gray-500" }, "⚙️ Settings")
+            ),
+            // Settings panel (initially hidden)
+            React.createElement('div', { id: "settingsPanel", style: { display: 'none' }, className: "bg-gray-800/70 p-3 rounded-xl mt-2" },
+              React.createElement('div', { className: "text-sm font-semibold text-teal-300 mb-2" }, "ElevenLabs Settings"),
+              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-2" },
+                React.createElement('div', null,
+                  React.createElement('label', { className: "text-xs text-gray-300 block mb-1" }, "API Key:"),
+                  React.createElement('input', { type: "password", id: "apiKeyInput", placeholder: "Enter your ElevenLabs API key", className: "w-full text-xs bg-gray-700 rounded p-1" })
+                ),
+                React.createElement('div', null,
+                  React.createElement('label', { className: "text-xs text-gray-300 block mb-1" }, "Voice:"),
+                  React.createElement('select', { id: "voiceSelect", className: "w-full text-xs bg-gray-700 rounded p-1" },
+                    React.createElement('option', { value: "" }, "-- Select voice --")
+                  ),
+                  React.createElement('button', { id: "refreshVoicesBtn", className: "text-xs bg-teal-700 px-2 py-1 rounded mt-1" }, "Refresh Voices")
+                )
+              ),
+              React.createElement('button', { id: "saveSettingsBtn", className: "text-xs bg-green-700 px-2 py-1 rounded mt-2" }, "Save Settings"),
+              React.createElement('p', { className: "text-xs text-gray-400 mt-2" }, "Your API key is stored only in your browser and sent directly to the backend. It is never shared.")
             ),
             React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
               React.createElement('h3', { className: "font-bold text-teal-300 mb-2" }, "🎙️ LIVE COMMENTARY"),
