@@ -25,31 +25,23 @@
   <div id="root">Loading application...</div>
   <div id="error-message" style="display: none;"></div>
 
+  <!-- Script loading with fallback -->
   <script>
-    window.onerror = function(msg, url, line, col, error) {
+    window.scriptLoadError = function(url) {
       var errDiv = document.getElementById('error-message');
       if (errDiv) {
         errDiv.style.display = 'block';
         errDiv.className = 'error-bar';
-        errDiv.innerHTML = '⚠️ ' + (error ? error.message : msg) + (url ? ' at ' + url + ':' + line : '');
+        errDiv.innerHTML = '⚠️ Failed to load: ' + url + '. Please check your internet connection and refresh.';
       }
-      return true;
     };
-    setTimeout(function() {
-      if (typeof React === 'undefined') {
-        var errDiv = document.getElementById('error-message');
-        if (errDiv) {
-          errDiv.style.display = 'block';
-          errDiv.className = 'error-bar';
-          errDiv.innerHTML = '⚠️ React failed to load. Check your internet connection.';
-        }
-      }
-    }, 3000);
   </script>
 
-  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
+  <!-- React from unpkg (reliable) -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" onerror="scriptLoadError('React')"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" onerror="scriptLoadError('ReactDOM')"></script>
+  <!-- Babel standalone (with fallback) -->
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js" onerror="scriptLoadError('Babel')"></script>
 
   <script type="text/babel">
     // --------------------------------------------------------------
