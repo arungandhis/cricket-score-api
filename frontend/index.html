@@ -25,23 +25,9 @@
   <div id="root">Loading application...</div>
   <div id="error-message" style="display: none;"></div>
 
-  <!-- Script loading with fallback -->
-  <script>
-    window.scriptLoadError = function(url) {
-      var errDiv = document.getElementById('error-message');
-      if (errDiv) {
-        errDiv.style.display = 'block';
-        errDiv.className = 'error-bar';
-        errDiv.innerHTML = '⚠️ Failed to load: ' + url + '. Please check your internet connection and refresh.';
-      }
-    };
-  </script>
-
-  <!-- React from unpkg (reliable) -->
-  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" onerror="scriptLoadError('React')"></script>
-  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" onerror="scriptLoadError('ReactDOM')"></script>
-  <!-- Babel standalone (with fallback) -->
-  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js" onerror="scriptLoadError('Babel')"></script>
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
 
   <script type="text/babel">
     // --------------------------------------------------------------
@@ -117,7 +103,7 @@
     };
 
     // --------------------------------------------------------------
-    // TTS via backend (with queue) – now includes API key and voice ID
+    // TTS via backend (with queue) – includes API key and voice ID
     // --------------------------------------------------------------
     const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com'; // Replace if needed
     let audioPlayer = null;
@@ -391,7 +377,7 @@
     }
 
     // --------------------------------------------------------------
-    // Parser and match simulation (unchanged)
+    // Parser and match simulation
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -763,7 +749,7 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Settings UI initialization (with error handling)
+      // Settings UI initialization (fixed: no optional chaining)
       React.useEffect(function() {
         try {
           const apiInput = document.getElementById('apiKeyInput');
@@ -804,7 +790,12 @@
                   voices.forEach(voice => {
                     const option = document.createElement('option');
                     option.value = voice.voice_id;
-                    option.textContent = `${voice.name} (${voice.labels?.accent || 'English'})`;
+                    // Safely get accent – voice.labels may be undefined
+                    let accent = 'English';
+                    if (voice.labels && typeof voice.labels === 'object') {
+                      accent = voice.labels.accent || 'English';
+                    }
+                    option.textContent = voice.name + ' (' + accent + ')';
                     select.appendChild(option);
                   });
                   if (storedVoiceId) select.value = storedVoiceId;
