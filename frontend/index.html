@@ -553,6 +553,35 @@
     // --------------------------------------------------------------
     // React components
     // --------------------------------------------------------------
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+      componentDidCatch(error, errorInfo) {
+        console.error('React error caught:', error, errorInfo);
+        var errDiv = document.getElementById('error-message');
+        if (errDiv) {
+          errDiv.style.display = 'block';
+          errDiv.className = 'error-bar';
+          errDiv.innerHTML = '⚠️ React Error: ' + (error ? error.message : 'Unknown error');
+        }
+      }
+      render() {
+        if (this.state.hasError) {
+          return React.createElement('div', { className: "text-center p-8 bg-red-900/50 rounded-lg" },
+            React.createElement('h2', { className: "text-xl font-bold text-red-300" }, "Something went wrong"),
+            React.createElement('p', { className: "text-sm text-gray-300 mt-2" }, this.state.error ? this.state.error.message : "Please refresh the page."),
+            React.createElement('button', { onClick: () => window.location.reload(), className: "mt-4 px-4 py-2 bg-teal-600 rounded" }, "Reload")
+          );
+        }
+        return this.props.children;
+      }
+    }
+
     var StatsPanel = function(props) {
       var battingRows = Object.keys(props.battingStats).map(function(name) {
         var s = props.battingStats[name];
@@ -744,59 +773,69 @@
 
       // Settings UI initialization
       React.useEffect(function() {
-        const apiInput = document.getElementById('apiKeyInput');
-        const voiceSelect = document.getElementById('voiceSelect');
-        const refreshBtn = document.getElementById('refreshVoicesBtn');
-        const showSettingsBtn = document.getElementById('showSettingsBtn');
-        const settingsPanel = document.getElementById('settingsPanel');
-        const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+        try {
+          const apiInput = document.getElementById('apiKeyInput');
+          const voiceSelect = document.getElementById('voiceSelect');
+          const refreshBtn = document.getElementById('refreshVoicesBtn');
+          const showSettingsBtn = document.getElementById('showSettingsBtn');
+          const settingsPanel = document.getElementById('settingsPanel');
+          const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 
-        if (apiInput) apiInput.value = storedApiKey;
-        if (voiceSelect && storedVoiceId) voiceSelect.value = storedVoiceId;
+          if (apiInput) apiInput.value = storedApiKey;
+          if (voiceSelect && storedVoiceId) voiceSelect.value = storedVoiceId;
 
-        if (showSettingsBtn) {
-          showSettingsBtn.onclick = () => {
-            if (settingsPanel) settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
-          };
+          if (showSettingsBtn) {
+            showSettingsBtn.onclick = () => {
+              if (settingsPanel) settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
+            };
+          }
+          if (refreshBtn) {
+            refreshBtn.onclick = async () => {
+              const key = document.getElementById('apiKeyInput').value;
+              if (!key) {
+                alert('Please enter your ElevenLabs API key first');
+                return;
+              }
+              try {
+                const response = await fetch(`${BACKEND_URL}/voices`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ apiKey: key })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const voices = await response.json();
+                const select = document.getElementById('voiceSelect');
+                if (select) {
+                  select.innerHTML = '<option value="">-- Select voice --</option>';
+                  voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.voice_id;
+                    option.textContent = `${voice.name} (${voice.labels?.accent || 'English'})`;
+                    select.appendChild(option);
+                  });
+                  if (storedVoiceId) select.value = storedVoiceId;
+                }
+              } catch (err) {
+                console.error(err);
+                alert('Could not fetch voices. Check your API key and backend.');
+              }
+            };
+          }
+          if (saveSettingsBtn) {
+            saveSettingsBtn.onclick = () => {
+              const key = document.getElementById('apiKeyInput').value;
+              const voiceId = document.getElementById('voiceSelect').value;
+              if (key && voiceId) {
+                updateTtsSettings(key, voiceId);
+                alert('Settings saved. You can now use the commentary.');
+              } else {
+                alert('Please enter both API key and select a voice.');
+              }
+            };
+          }
+        } catch (err) {
+          console.error('Settings init error', err);
         }
-        if (refreshBtn) refreshBtn.onclick = async () => {
-          const key = document.getElementById('apiKeyInput').value;
-          if (!key) {
-            alert('Please enter your ElevenLabs API key first');
-            return;
-          }
-          try {
-            const response = await fetch(`${BACKEND_URL}/voices`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ apiKey: key })
-            });
-            if (!response.ok) throw new Error('Failed to fetch voices');
-            const voices = await response.json();
-            const select = document.getElementById('voiceSelect');
-            select.innerHTML = '<option value="">-- Select voice --</option>';
-            voices.forEach(voice => {
-              const option = document.createElement('option');
-              option.value = voice.voice_id;
-              option.textContent = `${voice.name} (${voice.labels?.accent || 'English'})`;
-              select.appendChild(option);
-            });
-            if (storedVoiceId) select.value = storedVoiceId;
-          } catch (err) {
-            console.error(err);
-            alert('Could not fetch voices. Check your API key.');
-          }
-        };
-        if (saveSettingsBtn) saveSettingsBtn.onclick = () => {
-          const key = document.getElementById('apiKeyInput').value;
-          const voiceId = document.getElementById('voiceSelect').value;
-          if (key && voiceId) {
-            updateTtsSettings(key, voiceId);
-            alert('Settings saved. You can now use the commentary.');
-          } else {
-            alert('Please enter both API key and select a voice.');
-          }
-        };
       }, []);
 
       var toggleAmbience = function() { setAmbientEnabled(!ambientEnabled); };
@@ -1391,7 +1430,7 @@
     };
 
     try {
-      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ErrorBoundary, null, React.createElement(App)));
     } catch (err) {
       var errDiv = document.getElementById('error-message');
       if (errDiv) {
