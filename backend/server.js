@@ -14,7 +14,6 @@ if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
 // Helper: generate cache key from text, voice, and API key (hash of key)
 function getCacheKey(text, voiceId, apiKey) {
-  // Use a stable hash of the API key to avoid storing full key in filename
   const keyHash = crypto.createHash('md5').update(apiKey || 'default').digest('hex').substring(0, 8);
   const textHash = crypto.createHash('md5').update(text).digest('hex');
   return `${keyHash}_${voiceId}_${textHash}.mp3`;
@@ -58,10 +57,10 @@ app.post('/voices', async (req, res) => {
     const response = await axios.get('https://api.elevenlabs.io/v1/voices', {
       headers: { 'xi-api-key': apiKey }
     });
-    // Return only English voices or all
     res.json(response.data.voices);
   } catch (err) {
     console.error('Error fetching voices:', err.message);
+    if (err.response) console.error('Status:', err.response.status, 'Data:', err.response.data);
     res.status(500).send('Could not fetch voices');
   }
 });
