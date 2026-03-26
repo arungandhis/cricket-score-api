@@ -833,39 +833,39 @@
       };
 
       var loadRecentMatches = async function() {
-  setLoadingRecent(true);
-  setError(null);
-  try {
-    // Use a CORS proxy that supports binary files
-    const proxyUrl = 'https://api.cors.lol/?url=';
-    const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
-    const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
-    if (!response.ok) throw new Error(`HTTP ${response.status} – ${response.statusText}`);
-    const blob = await response.blob();
-    const zip = await JSZip.loadAsync(blob);
-    const matches = [];
-    for (let fileName in zip.files) {
-      if (fileName.endsWith('.json')) {
-        const content = await zip.files[fileName].async('string');
+        setLoadingRecent(true);
+        setError(null);
         try {
-          const json = JSON.parse(content);
-          const teams = (json.info && json.info.teams) ? json.info.teams.join(' vs ') : 'Unknown match';
-          const date = (json.info && json.info.dates && json.info.dates[0]) ? json.info.dates[0] : 'Unknown date';
-          const displayName = teams + ' – ' + date;
-          matches.push({ fileName, displayName, json });
-        } catch(e) {
-          console.warn('Could not parse', fileName, e);
+          // Use a CORS proxy that supports binary files
+          const proxyUrl = 'https://api.cors.lol/?url=';
+          const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
+          const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
+          if (!response.ok) throw new Error(`HTTP ${response.status} – ${response.statusText}`);
+          const blob = await response.blob();
+          const zip = await JSZip.loadAsync(blob);
+          const matches = [];
+          for (let fileName in zip.files) {
+            if (fileName.endsWith('.json')) {
+              const content = await zip.files[fileName].async('string');
+              try {
+                const json = JSON.parse(content);
+                const teams = (json.info && json.info.teams) ? json.info.teams.join(' vs ') : 'Unknown match';
+                const date = (json.info && json.info.dates && json.info.dates[0]) ? json.info.dates[0] : 'Unknown date';
+                const displayName = teams + ' – ' + date;
+                matches.push({ fileName, displayName, json });
+              } catch(e) {
+                console.warn('Could not parse', fileName, e);
+              }
+            }
+          }
+          setRecentMatches(matches);
+        } catch (err) {
+          console.error('Load error:', err);
+          setError('Failed to load recent matches: ' + err.message + '. Please try again later or use the manual upload.');
+        } finally {
+          setLoadingRecent(false);
         }
-      }
-    }
-    setRecentMatches(matches);
-  } catch (err) {
-    console.error('Load error:', err);
-    setError('Failed to load recent matches: ' + err.message + '. Please try again later or use the manual upload.');
-  } finally {
-    setLoadingRecent(false);
-  }
-};
+      };
 
       var selectRecentMatch = function(e) {
         const idx = e.target.value;
@@ -1697,7 +1697,36 @@
                 {systemVoiceWarning}
               </div>
 
-              {/* Stream Settings (placeholder) */}
+              {/* Live Overlay - moved here */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Live Overlay</h3>
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <div>
+                    <div className="text-3xl font-mono font-bold text-teal-300">{matchState.totalRuns}/{matchState.wickets}</div>
+                    <div className="text-gray-400 text-sm">{matchState.overs} overs</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-gray-400 text-xs">{currentInningsIdx === 0 ? "1st Innings" : "Target: " + target}</div>
+                    {currentDelivery && <div className="text-sm font-mono">{getLastName(currentDelivery.striker)} {currentDelivery.runs}*</div>}
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-400">Striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.striker) : "-"}</span><br />
+                    <span className="text-gray-400">Bowler:</span> <span className="font-bold text-emerald-300">{currentDelivery ? getLastName(currentDelivery.bowler) : "-"}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Non-striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.nonStriker) : "-"}</span><br />
+                    <span className="text-gray-400">Last Ball:</span> <span className="font-mono">{currentDelivery ? currentDelivery.runs + " runs" + (currentDelivery.wicket ? " ❌" : "") : "-"}</span>
+                  </div>
+                </div>
+                <div className="mt-3 w-full bg-gray-700 h-1 rounded-full">
+                  <div className="bg-teal-400 h-1 rounded-full transition-all" style={{ width: progressPercent + "%" }}></div>
+                </div>
+                {firstInningsStats && <div className="mt-2 text-xs text-gray-400">1st innings: {firstInningsStats.total}/{firstInningsStats.wickets} ({firstInningsStats.team})</div>}
+              </div>
+
+              {/* Stream Settings */}
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <h3 className="text-lg font-semibold text-teal-300 mb-3">Stream Settings</h3>
                 <div className="space-y-2 text-sm">
@@ -1773,35 +1802,6 @@
 
             {/* Right column */}
             <div className="lg:col-span-2 space-y-6">
-              {/* Live Overlay */}
-              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
-                <h3 className="text-lg font-semibold text-teal-300 mb-3">Live Overlay</h3>
-                <div className="flex justify-between items-center flex-wrap gap-2">
-                  <div>
-                    <div className="text-3xl font-mono font-bold text-teal-300">{matchState.totalRuns}/{matchState.wickets}</div>
-                    <div className="text-gray-400 text-sm">{matchState.overs} overs</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-gray-400 text-xs">{currentInningsIdx === 0 ? "1st Innings" : "Target: " + target}</div>
-                    {currentDelivery && <div className="text-sm font-mono">{getLastName(currentDelivery.striker)} {currentDelivery.runs}*</div>}
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-gray-400">Striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.striker) : "-"}</span><br />
-                    <span className="text-gray-400">Bowler:</span> <span className="font-bold text-emerald-300">{currentDelivery ? getLastName(currentDelivery.bowler) : "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400">Non-striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.nonStriker) : "-"}</span><br />
-                    <span className="text-gray-400">Last Ball:</span> <span className="font-mono">{currentDelivery ? currentDelivery.runs + " runs" + (currentDelivery.wicket ? " ❌" : "") : "-"}</span>
-                  </div>
-                </div>
-                <div className="mt-3 w-full bg-gray-700 h-1 rounded-full">
-                  <div className="bg-teal-400 h-1 rounded-full transition-all" style={{ width: progressPercent + "%" }}></div>
-                </div>
-                {firstInningsStats && <div className="mt-2 text-xs text-gray-400">1st innings: {firstInningsStats.total}/{firstInningsStats.wickets} ({firstInningsStats.team})</div>}
-              </div>
-
               {/* Social Reactions / Commentary Feed */}
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <h3 className="text-lg font-semibold text-teal-300 mb-3">Social Reactions</h3>
