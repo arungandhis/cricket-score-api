@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Animated Players & Realistic TTS</title>
+  <title>Cricket Live Studio – Multi‑Provider TTS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -103,23 +103,16 @@
     };
 
     // --------------------------------------------------------------
-    // TTS via backend (with queue) – includes API key and voice ID
+    // Backend URL (must be your multi‑provider backend)
     // --------------------------------------------------------------
-    const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com'; // Replace if needed
+    const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com'; // Update if needed
+
+    // --------------------------------------------------------------
+    // TTS audio queue (for backend audio)
+    // --------------------------------------------------------------
     let audioPlayer = null;
     let audioQueue = [];
     let isAudioPlaying = false;
-
-    // Stored settings
-    let storedApiKey = localStorage.getItem('elevenlabs_api_key') || '';
-    let storedVoiceId = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM'; // default Rachel
-
-    function updateTtsSettings(apiKey, voiceId) {
-      storedApiKey = apiKey;
-      storedVoiceId = voiceId;
-      localStorage.setItem('elevenlabs_api_key', apiKey);
-      localStorage.setItem('elevenlabs_voice_id', voiceId);
-    }
 
     function playAudio(url, onEnd) {
       if (audioPlayer) {
@@ -147,42 +140,7 @@
       playAudio(url, onEnd);
     }
 
-    function speakWithCallback(text, style, onEnd) {
-      if (!text) {
-        if (onEnd) onEnd();
-        return;
-      }
-      if (!storedApiKey) {
-        console.warn('No API key set. Please enter your ElevenLabs API key in Settings.');
-        if (onEnd) onEnd();
-        return;
-      }
-      fetch(`${BACKEND_URL}/speak`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text,
-          style,
-          apiKey: storedApiKey,
-          voiceId: storedVoiceId
-        })
-      })
-      .then(response => {
-        if (!response.ok) throw new Error('TTS failed');
-        return response.blob();
-      })
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        audioQueue.push({ url, onEnd });
-        processAudioQueue();
-      })
-      .catch(err => {
-        console.error('TTS error', err);
-        if (onEnd) onEnd();
-      });
-    }
-
-    function clearSpeechQueue() {
+    function clearAudioQueue() {
       if (audioPlayer) {
         audioPlayer.pause();
         audioPlayer.src = '';
@@ -192,7 +150,210 @@
     }
 
     // --------------------------------------------------------------
-    // Audio Context for stadium ambience (simplified)
+    // System voice fallback (browser TTS)
+    // --------------------------------------------------------------
+    let systemSpeechQueue = [];
+    let isSystemSpeaking = false;
+    let selectedSystemVoice = null;
+    let availableSystemVoices = [];
+
+    function loadSystemVoices() {
+      return new Promise((resolve) => {
+        if (window.speechSynthesis) {
+          const load = () => {
+            availableSystemVoices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+            if (availableSystemVoices.length === 0) availableSystemVoices = window.speechSynthesis.getVoices();
+            if (!selectedSystemVoice && availableSystemVoices.length) {
+              selectedSystemVoice = availableSystemVoices.find(v => v.lang === 'en-IN') || availableSystemVoices[0];
+            }
+            resolve(availableSystemVoices);
+          };
+          if (window.speechSynthesis.getVoices().length) load();
+          else window.speechSynthesis.addEventListener('voiceschanged', load);
+        } else {
+          resolve([]);
+        }
+      });
+    }
+
+    function systemFallback(text, style, onEnd) {
+      systemSpeechQueue.push({ text, style, onEnd });
+      processSystemSpeech();
+    }
+
+    function processSystemSpeech() {
+      if (isSystemSpeaking) return;
+      if (systemSpeechQueue.length === 0) return;
+      const { text, style, onEnd } = systemSpeechQueue.shift();
+      isSystemSpeaking = true;
+
+      const sentences = text.match(/[^.!?]+[.!?]/g) || [text];
+      if (sentences.length === 0) {
+        isSystemSpeaking = false;
+        if (onEnd) onEnd();
+        processSystemSpeech();
+        return;
+      }
+
+      let styleParams = {
+        normal: { rate: 0.9, pitch: 0.95, gap: 120 },
+        excited: { rate: 1.05, pitch: 1.1, gap: 80 },
+        dramatic: { rate: 1.1, pitch: 1.15, gap: 150 }
+      }[style] || { rate: 0.9, pitch: 0.95, gap: 120 };
+
+      let index = 0;
+      const speakNext = () => {
+        if (index >= sentences.length) {
+          isSystemSpeaking = false;
+          if (onEnd) onEnd();
+          processSystemSpeech();
+          return;
+        }
+        const sentence = sentences[index].trim();
+        if (!sentence) {
+          index++;
+          speakNext();
+          return;
+        }
+        const utterance = new SpeechSynthesisUtterance(sentence);
+        if (selectedSystemVoice) utterance.voice = selectedSystemVoice;
+        utterance.rate = styleParams.rate;
+        utterance.pitch = styleParams.pitch;
+        utterance.onend = () => {
+          index++;
+          if (index < sentences.length) {
+            setTimeout(speakNext, styleParams.gap);
+          } else {
+            isSystemSpeaking = false;
+            if (onEnd) onEnd();
+            processSystemSpeech();
+          }
+        };
+        utterance.onerror = () => {
+          index++;
+          if (index < sentences.length) {
+            setTimeout(speakNext, styleParams.gap);
+          } else {
+            isSystemSpeaking = false;
+            if (onEnd) onEnd();
+            processSystemSpeech();
+          }
+        };
+        window.speechSynthesis.speak(utterance);
+      };
+      speakNext();
+    }
+
+    function clearAllSpeech() {
+      clearAudioQueue();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      systemSpeechQueue = [];
+      isSystemSpeaking = false;
+    }
+
+    // --------------------------------------------------------------
+    // Multi‑provider TTS dispatcher
+    // --------------------------------------------------------------
+    // Stored settings
+    let storedPrimaryProvider = localStorage.getItem('primary_provider') || 'system';
+    let storedElevenlabsKey = localStorage.getItem('elevenlabs_api_key') || '';
+    let storedElevenlabsVoice = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM';
+    let storedGoogleKey = localStorage.getItem('google_api_key') || '';
+    let storedGoogleVoice = localStorage.getItem('google_voice_id') || 'en-GB-Wavenet-A';
+
+    function updateTtsSettings(primary, elevenlabsKey, elevenlabsVoice, googleKey, googleVoice) {
+      storedPrimaryProvider = primary;
+      storedElevenlabsKey = elevenlabsKey;
+      storedElevenlabsVoice = elevenlabsVoice;
+      storedGoogleKey = googleKey;
+      storedGoogleVoice = googleVoice;
+      localStorage.setItem('primary_provider', primary);
+      localStorage.setItem('elevenlabs_api_key', elevenlabsKey);
+      localStorage.setItem('elevenlabs_voice_id', elevenlabsVoice);
+      localStorage.setItem('google_api_key', googleKey);
+      localStorage.setItem('google_voice_id', googleVoice);
+    }
+
+    function speakWithCallback(text, style, onEnd) {
+      if (!text) {
+        if (onEnd) onEnd();
+        return;
+      }
+
+      // If primary is system voice, use system directly
+      if (storedPrimaryProvider === 'system') {
+        systemFallback(text, style, onEnd);
+        return;
+      }
+
+      // Prepare request to backend
+      let apiKey, voiceId, fallbackProvider, fallbackApiKey, fallbackVoiceId;
+      if (storedPrimaryProvider === 'elevenlabs') {
+        if (!storedElevenlabsKey) {
+          systemFallback(text, style, onEnd);
+          return;
+        }
+        apiKey = storedElevenlabsKey;
+        voiceId = storedElevenlabsVoice;
+        // If we have Google key, use it as fallback
+        if (storedGoogleKey) {
+          fallbackProvider = 'google';
+          fallbackApiKey = storedGoogleKey;
+          fallbackVoiceId = storedGoogleVoice;
+        } else {
+          fallbackProvider = null;
+        }
+      } else if (storedPrimaryProvider === 'google') {
+        if (!storedGoogleKey) {
+          systemFallback(text, style, onEnd);
+          return;
+        }
+        apiKey = storedGoogleKey;
+        voiceId = storedGoogleVoice;
+        if (storedElevenlabsKey) {
+          fallbackProvider = 'elevenlabs';
+          fallbackApiKey = storedElevenlabsKey;
+          fallbackVoiceId = storedElevenlabsVoice;
+        } else {
+          fallbackProvider = null;
+        }
+      } else {
+        // Should not happen
+        systemFallback(text, style, onEnd);
+        return;
+      }
+
+      fetch(`${BACKEND_URL}/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          style,
+          provider: storedPrimaryProvider,
+          apiKey,
+          voiceId,
+          fallbackProvider,
+          fallbackApiKey,
+          fallbackVoiceId
+        })
+      })
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.blob();
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        audioQueue.push({ url, onEnd });
+        processAudioQueue();
+      })
+      .catch(err => {
+        console.error('External TTS failed:', err);
+        systemFallback(text, style, onEnd);
+      });
+    }
+
+    // --------------------------------------------------------------
+    // Audio Context for stadium ambience (unchanged)
     // --------------------------------------------------------------
     let audioCtx = null;
     let masterGain = null;
@@ -377,7 +538,7 @@
     }
 
     // --------------------------------------------------------------
-    // Parser and match simulation (unchanged)
+    // Match parsing and simulation (unchanged, same as before)
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -529,7 +690,7 @@
     }
 
     // --------------------------------------------------------------
-    // React components
+    // React components (unchanged except the settings panel)
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -728,6 +889,11 @@
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
+      // Load system voices
+      React.useEffect(function() {
+        loadSystemVoices();
+      }, []);
+
       // Load audio and set up UI
       React.useEffect(function() {
         var initAudioOnInteraction = function() {
@@ -749,20 +915,27 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Settings UI initialization (voice refresh and save) – fixed optional chaining
+      // Settings UI initialization (multi‑provider)
       React.useEffect(function() {
         try {
-          const refreshBtn = document.getElementById('refreshVoicesBtn');
-          const saveSettingsBtn = document.getElementById('saveSettingsBtn');
-          const apiInput = document.getElementById('apiKeyInput');
-          const voiceSelect = document.getElementById('voiceSelect');
+          // Populate inputs with stored values
+          const primarySelect = document.getElementById('primaryProvider');
+          const elevenlabsKey = document.getElementById('elevenlabsApiKey');
+          const elevenlabsVoice = document.getElementById('elevenlabsVoiceSelect');
+          const googleKey = document.getElementById('googleApiKey');
+          const googleVoice = document.getElementById('googleVoiceSelect');
 
-          if (apiInput) apiInput.value = storedApiKey;
-          if (voiceSelect && storedVoiceId) voiceSelect.value = storedVoiceId;
+          if (primarySelect) primarySelect.value = storedPrimaryProvider;
+          if (elevenlabsKey) elevenlabsKey.value = storedElevenlabsKey;
+          if (elevenlabsVoice && storedElevenlabsVoice) elevenlabsVoice.value = storedElevenlabsVoice;
+          if (googleKey) googleKey.value = storedGoogleKey;
+          if (googleVoice && storedGoogleVoice) googleVoice.value = storedGoogleVoice;
 
-          if (refreshBtn) {
-            refreshBtn.onclick = async () => {
-              const key = document.getElementById('apiKeyInput').value;
+          // Refresh voices for ElevenLabs
+          const refreshEleven = document.getElementById('refreshElevenVoices');
+          if (refreshEleven) {
+            refreshEleven.onclick = async () => {
+              const key = document.getElementById('elevenlabsApiKey').value;
               if (!key) {
                 alert('Please enter your ElevenLabs API key first');
                 return;
@@ -775,13 +948,12 @@
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const voices = await response.json();
-                const select = document.getElementById('voiceSelect');
+                const select = document.getElementById('elevenlabsVoiceSelect');
                 if (select) {
                   select.innerHTML = '<option value="">-- Select voice --</option>';
                   voices.forEach(voice => {
                     const option = document.createElement('option');
                     option.value = voice.voice_id;
-                    // Safe accent extraction – no optional chaining
                     let accent = 'English';
                     if (voice.labels && typeof voice.labels === 'object' && voice.labels.accent) {
                       accent = voice.labels.accent;
@@ -789,7 +961,7 @@
                     option.textContent = voice.name + ' (' + accent + ')';
                     select.appendChild(option);
                   });
-                  if (storedVoiceId) select.value = storedVoiceId;
+                  if (storedElevenlabsVoice) select.value = storedElevenlabsVoice;
                 }
               } catch (err) {
                 console.error(err);
@@ -798,16 +970,61 @@
             };
           }
 
-          if (saveSettingsBtn) {
-            saveSettingsBtn.onclick = () => {
-              const key = document.getElementById('apiKeyInput').value;
-              const voiceId = document.getElementById('voiceSelect').value;
-              if (key && voiceId) {
-                updateTtsSettings(key, voiceId);
-                alert('Settings saved. You can now use the commentary.');
-              } else {
-                alert('Please enter both API key and select a voice.');
+          // Refresh voices for Google Cloud
+          const refreshGoogle = document.getElementById('refreshGoogleVoices');
+          if (refreshGoogle) {
+            refreshGoogle.onclick = async () => {
+              const key = document.getElementById('googleApiKey').value;
+              if (!key) {
+                alert('Please enter your Google Cloud API key first');
+                return;
               }
+              try {
+                const response = await fetch(`${BACKEND_URL}/voices`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ provider: 'google', apiKey: key })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const voices = await response.json();
+                const select = document.getElementById('googleVoiceSelect');
+                if (select) {
+                  select.innerHTML = '<option value="">-- Select voice --</option>';
+                  voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.name;
+                    option.textContent = voice.name + ' (' + voice.languageCodes[0] + ')';
+                    select.appendChild(option);
+                  });
+                  if (storedGoogleVoice) select.value = storedGoogleVoice;
+                }
+              } catch (err) {
+                console.error(err);
+                alert('Could not fetch voices: ' + err.message);
+              }
+            };
+          }
+
+          // Save settings
+          const saveBtn = document.getElementById('saveSettingsBtn');
+          if (saveBtn) {
+            saveBtn.onclick = () => {
+              const primary = document.getElementById('primaryProvider').value;
+              const elevenKey = document.getElementById('elevenlabsApiKey').value;
+              const elevenVoice = document.getElementById('elevenlabsVoiceSelect').value;
+              const googleKeyVal = document.getElementById('googleApiKey').value;
+              const googleVoiceVal = document.getElementById('googleVoiceSelect').value;
+              updateTtsSettings(primary, elevenKey, elevenVoice, googleKeyVal, googleVoiceVal);
+              alert('Settings saved.');
+            };
+          }
+
+          // Toggle settings panel
+          const settingsBtn = document.getElementById('showSettingsBtn');
+          const panel = document.getElementById('settingsPanel');
+          if (settingsBtn && panel) {
+            settingsBtn.onclick = () => {
+              panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
             };
           }
         } catch (err) {
@@ -990,7 +1207,7 @@
 
       var manualNextBall = function() {
         if (internalSpeaking) {
-          clearSpeechQueue();
+          clearAllSpeech();
           setInternalSpeaking(false);
         }
         if (!isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
@@ -1016,7 +1233,7 @@
       var resetSimulation = function() {
         setIsPlaying(false);
         if (internalSpeaking) {
-          clearSpeechQueue();
+          clearAllSpeech();
           setInternalSpeaking(false);
         }
         if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
@@ -1098,14 +1315,12 @@
         var ctx = canvas.getContext('2d');
         var w = canvas.width, h = canvas.height;
 
-        // Background
         var grad = ctx.createLinearGradient(0, 0, 0, h);
         grad.addColorStop(0, '#0b2b26');
         grad.addColorStop(1, '#051a17');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, w, h);
 
-        // Pitch
         var pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
         ctx.fillStyle = '#2c5e2e';
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
@@ -1122,15 +1337,12 @@
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
 
-        // Batsman
-        var batsmanX = pitchX + pitchW * 0.85 - 40;
-        var batsmanY = pitchY + pitchH * 0.1 - 45;
+        var batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
         ctx.fillStyle = '#3b82f6';
         ctx.beginPath();
         ctx.arc(batsmanX + 40, batsmanY + 40, 30, 0, Math.PI * 2);
         ctx.fill();
 
-        // Bat animation
         var batAngle = 0;
         if (batsmanAnim.active) {
           var elapsed = Math.min(1, (Date.now() - batsmanAnim.startTime) / 300);
@@ -1147,15 +1359,12 @@
         ctx.fillRect(0, 0, 20, 5);
         ctx.restore();
 
-        // Bowler
-        var bowlerX = pitchX + pitchW * 0.15 - 40;
-        var bowlerY = pitchY + pitchH * 0.9 - 45;
+        var bowlerX = pitchX + pitchW * 0.15 - 40, bowlerY = pitchY + pitchH * 0.9 - 45;
         ctx.fillStyle = '#ef4444';
         ctx.beginPath();
         ctx.arc(bowlerX + 40, bowlerY + 40, 30, 0, Math.PI * 2);
         ctx.fill();
 
-        // Bowler arm
         var armAngle = 0;
         if (bowlerAnim.active) {
           var elapsed = Math.min(1, (Date.now() - bowlerAnim.startTime) / 300);
@@ -1168,15 +1377,12 @@
         ctx.fillRect(0, 0, 30, 8);
         ctx.restore();
 
-        // Non‑striker
-        var nonStrikerX = pitchX + pitchW * 0.5 - 20;
-        var nonStrikerY = pitchY + pitchH * 0.8;
+        var nonStrikerX = pitchX + pitchW * 0.5 - 20, nonStrikerY = pitchY + pitchH * 0.8;
         ctx.fillStyle = '#3b82f6';
         ctx.beginPath();
         ctx.arc(nonStrikerX + 20, nonStrikerY + 20, 15, 0, Math.PI * 2);
         ctx.fill();
 
-        // Fielders
         var fielders = [
           { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
         ];
@@ -1190,7 +1396,6 @@
           ctx.fill();
         });
 
-        // Scoreboard overlay
         ctx.font = 'bold 24px "Inter", sans-serif';
         ctx.fillStyle = '#f0fdf4';
         ctx.fillText(matchInfo.teams, 30, 55);
@@ -1237,7 +1442,6 @@
         ctx.fillStyle = '#4b5563';
         ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
 
-        // Hit effect (on top)
         if (effect) {
           var elapsed = (Date.now() - effect.startTime) / 1000;
           var alpha = Math.max(0, 1 - elapsed);
@@ -1355,32 +1559,42 @@
               ),
               React.createElement('button', { onClick: toggleMute, className: "px-3 py-1 rounded-md text-xs " + (muteAudio ? "bg-red-700" : "bg-teal-700") }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
               React.createElement('button', { onClick: toggleAmbience, className: "px-3 py-1 rounded-md text-xs " + (ambientEnabled ? "bg-green-700" : "bg-gray-600") }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off"),
-              React.createElement('button', {
-                onClick: () => {
-                  var panel = document.getElementById('settingsPanel');
-                  if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-                },
-                className: "px-2 py-1 rounded-md text-xs bg-gray-600 hover:bg-gray-500"
-              }, "⚙️ Settings")
+              React.createElement('button', { id: "showSettingsBtn", className: "px-2 py-1 rounded-md text-xs bg-gray-600 hover:bg-gray-500" }, "⚙️ Settings")
             ),
             // Settings panel (initially hidden)
             React.createElement('div', { id: "settingsPanel", style: { display: 'none' }, className: "bg-gray-800/70 p-3 rounded-xl mt-2" },
-              React.createElement('div', { className: "text-sm font-semibold text-teal-300 mb-2" }, "ElevenLabs Settings"),
-              React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-2" },
-                React.createElement('div', null,
-                  React.createElement('label', { className: "text-xs text-gray-300 block mb-1" }, "API Key:"),
-                  React.createElement('input', { type: "password", id: "apiKeyInput", placeholder: "Enter your ElevenLabs API key", className: "w-full text-xs bg-gray-700 rounded p-1" })
-                ),
-                React.createElement('div', null,
-                  React.createElement('label', { className: "text-xs text-gray-300 block mb-1" }, "Voice:"),
-                  React.createElement('select', { id: "voiceSelect", className: "w-full text-xs bg-gray-700 rounded p-1" },
-                    React.createElement('option', { value: "" }, "-- Select voice --")
-                  ),
-                  React.createElement('button', { id: "refreshVoicesBtn", className: "text-xs bg-teal-700 px-2 py-1 rounded mt-1" }, "Refresh Voices")
+              React.createElement('div', { className: "text-sm font-semibold text-teal-300 mb-2" }, "TTS Provider Settings"),
+              React.createElement('div', { className: "mb-2" },
+                React.createElement('label', { className: "text-xs text-gray-300 block mb-1" }, "Primary Provider:"),
+                React.createElement('select', { id: "primaryProvider", className: "w-full text-xs bg-gray-700 rounded p-1" },
+                  React.createElement('option', { value: "system" }, "System Voice (browser)"),
+                  React.createElement('option', { value: "elevenlabs" }, "ElevenLabs"),
+                  React.createElement('option', { value: "google" }, "Google Cloud")
                 )
               ),
-              React.createElement('button', { id: "saveSettingsBtn", className: "text-xs bg-green-700 px-2 py-1 rounded mt-2" }, "Save Settings"),
-              React.createElement('p', { className: "text-xs text-gray-400 mt-2" }, "Your API key is stored only in your browser and sent directly to the backend. It is never shared.")
+              React.createElement('div', { className: "border-t border-gray-600 my-2" }),
+              React.createElement('div', { className: "mb-2" },
+                React.createElement('div', { className: "text-teal-300 text-xs mb-1" }, "ElevenLabs"),
+                React.createElement('input', { type: "password", id: "elevenlabsApiKey", placeholder: "API Key", className: "w-full text-xs bg-gray-700 rounded p-1 mb-1" }),
+                React.createElement('div', { className: "flex gap-1" },
+                  React.createElement('select', { id: "elevenlabsVoiceSelect", className: "flex-1 text-xs bg-gray-700 rounded p-1" },
+                    React.createElement('option', { value: "" }, "-- Select voice --")
+                  ),
+                  React.createElement('button', { id: "refreshElevenVoices", className: "text-xs bg-teal-700 px-2 py-1 rounded" }, "Refresh")
+                )
+              ),
+              React.createElement('div', { className: "mb-2" },
+                React.createElement('div', { className: "text-teal-300 text-xs mb-1" }, "Google Cloud"),
+                React.createElement('input', { type: "password", id: "googleApiKey", placeholder: "API Key", className: "w-full text-xs bg-gray-700 rounded p-1 mb-1" }),
+                React.createElement('div', { className: "flex gap-1" },
+                  React.createElement('select', { id: "googleVoiceSelect", className: "flex-1 text-xs bg-gray-700 rounded p-1" },
+                    React.createElement('option', { value: "" }, "-- Select voice --")
+                  ),
+                  React.createElement('button', { id: "refreshGoogleVoices", className: "text-xs bg-teal-700 px-2 py-1 rounded" }, "Refresh")
+                )
+              ),
+              React.createElement('button', { id: "saveSettingsBtn", className: "text-xs bg-green-700 px-3 py-1 rounded mt-2" }, "Save Settings"),
+              React.createElement('p', { className: "text-xs text-gray-400 mt-2" }, "API keys are stored in your browser. If an external provider fails, the fallback (if configured) will be used, otherwise system voice.")
             ),
             React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
               React.createElement('h3', { className: "font-bold text-teal-300 mb-2" }, "🎙️ LIVE COMMENTARY"),
