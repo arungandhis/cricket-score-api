@@ -749,7 +749,7 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Settings UI initialization (voice refresh and save)
+      // Settings UI initialization (voice refresh and save) – fixed optional chaining
       React.useEffect(function() {
         try {
           const refreshBtn = document.getElementById('refreshVoicesBtn');
@@ -781,7 +781,12 @@
                   voices.forEach(voice => {
                     const option = document.createElement('option');
                     option.value = voice.voice_id;
-                    option.textContent = voice.name + ' (' + (voice.labels?.accent || 'English') + ')';
+                    // Safe accent extraction – no optional chaining
+                    let accent = 'English';
+                    if (voice.labels && typeof voice.labels === 'object' && voice.labels.accent) {
+                      accent = voice.labels.accent;
+                    }
+                    option.textContent = voice.name + ' (' + accent + ')';
                     select.appendChild(option);
                   });
                   if (storedVoiceId) select.value = storedVoiceId;
