@@ -696,8 +696,6 @@
       var matchSummaryTriggeredRef = React.useRef(false);
 
       var [ambientEnabled, setAmbientEnabled] = React.useState(true);
-      var [voices, setVoices] = React.useState([]);
-      var [selectedVoiceName, setSelectedVoiceName] = React.useState('');
 
       // Animation states
       var [batsmanAnim, setBatsmanAnim] = React.useState({ active: false, type: 'idle', startTime: 0 });
@@ -730,7 +728,7 @@
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Load voices and init audio
+      // Load audio and set up UI
       React.useEffect(function() {
         var initAudioOnInteraction = function() {
           if (!audioCtx) {
@@ -750,6 +748,67 @@
           else setAmbience(false);
         }
       }, [ambientEnabled, muteAudio]);
+
+      // Settings UI initialization (voice refresh and save)
+      React.useEffect(function() {
+        try {
+          const refreshBtn = document.getElementById('refreshVoicesBtn');
+          const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+          const apiInput = document.getElementById('apiKeyInput');
+          const voiceSelect = document.getElementById('voiceSelect');
+
+          if (apiInput) apiInput.value = storedApiKey;
+          if (voiceSelect && storedVoiceId) voiceSelect.value = storedVoiceId;
+
+          if (refreshBtn) {
+            refreshBtn.onclick = async () => {
+              const key = document.getElementById('apiKeyInput').value;
+              if (!key) {
+                alert('Please enter your ElevenLabs API key first');
+                return;
+              }
+              try {
+                const response = await fetch(`${BACKEND_URL}/voices`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ provider: 'elevenlabs', apiKey: key })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const voices = await response.json();
+                const select = document.getElementById('voiceSelect');
+                if (select) {
+                  select.innerHTML = '<option value="">-- Select voice --</option>';
+                  voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.voice_id;
+                    option.textContent = voice.name + ' (' + (voice.labels?.accent || 'English') + ')';
+                    select.appendChild(option);
+                  });
+                  if (storedVoiceId) select.value = storedVoiceId;
+                }
+              } catch (err) {
+                console.error(err);
+                alert('Could not fetch voices: ' + err.message);
+              }
+            };
+          }
+
+          if (saveSettingsBtn) {
+            saveSettingsBtn.onclick = () => {
+              const key = document.getElementById('apiKeyInput').value;
+              const voiceId = document.getElementById('voiceSelect').value;
+              if (key && voiceId) {
+                updateTtsSettings(key, voiceId);
+                alert('Settings saved. You can now use the commentary.');
+              } else {
+                alert('Please enter both API key and select a voice.');
+              }
+            };
+          }
+        } catch (err) {
+          console.error('Settings init error', err);
+        }
+      }, []);
 
       var toggleAmbience = function() { setAmbientEnabled(!ambientEnabled); };
       var toggleMute = function() { setMuteAudio(!muteAudio); };
@@ -1291,7 +1350,13 @@
               ),
               React.createElement('button', { onClick: toggleMute, className: "px-3 py-1 rounded-md text-xs " + (muteAudio ? "bg-red-700" : "bg-teal-700") }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
               React.createElement('button', { onClick: toggleAmbience, className: "px-3 py-1 rounded-md text-xs " + (ambientEnabled ? "bg-green-700" : "bg-gray-600") }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off"),
-              React.createElement('button', { id: "showSettingsBtn", className: "px-2 py-1 rounded-md text-xs bg-gray-600 hover:bg-gray-500" }, "⚙️ Settings")
+              React.createElement('button', {
+                onClick: () => {
+                  var panel = document.getElementById('settingsPanel');
+                  if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                },
+                className: "px-2 py-1 rounded-md text-xs bg-gray-600 hover:bg-gray-500"
+              }, "⚙️ Settings")
             ),
             // Settings panel (initially hidden)
             React.createElement('div', { id: "settingsPanel", style: { display: 'none' }, className: "bg-gray-800/70 p-3 rounded-xl mt-2" },
