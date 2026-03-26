@@ -19,6 +19,7 @@
     .settings-panel { background: #1f2937; border-radius: 0.75rem; padding: 0.75rem; margin-top: 0.5rem; }
     .settings-panel input, .settings-panel select { background: #374151; border: none; border-radius: 0.375rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
     .settings-panel button { background: #2dd4bf; color: #111; font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; }
+    .warning { background: #facc15; color: #1f2937; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; margin-top: 6px; }
   </style>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
@@ -1513,10 +1514,19 @@
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
-      // Combined audio+video recording
+      // Combined audio+video recording with initAudio check
       var startRecording = function() {
-        if (!canvasRef.current) return;
+        if (!canvasRef.current) {
+          alert('Canvas not ready');
+          return;
+        }
+        // Ensure audio context is initialised
+        if (!audioCtx) {
+          initAudio();
+          if (ambientEnabled && !muteAudio) setAmbience(true);
+        }
         if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
         const canvasStream = canvasRef.current.captureStream(30);
         let audioStream = null;
         if (recordingDestinationNode && recordingDestinationNode.stream) {
@@ -1527,8 +1537,11 @@
           const videoTracks = canvasStream.getVideoTracks();
           const audioTracks = audioStream.getAudioTracks();
           combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+          console.log('Recording with audio');
         } else {
           combinedStream = canvasStream;
+          console.warn('No audio stream available – recording video only');
+          alert('No audio stream available. Ensure you have started the match and selected an external TTS provider (ElevenLabs/Google) for audio capture.');
         }
 
         recordedChunksRef.current = [];
@@ -1566,7 +1579,10 @@
       var isMatchOver = isMatchFinished;
       var startDisabled = isMatchOver;
 
-      // New admin panel UI (with fixed file upload)
+      // Show warning if system voice is selected (audio won't be recorded)
+      var systemVoiceWarning = (storedPrimaryProvider === 'system') ? React.createElement('div', { className: "warning" }, "⚠️ System voice will NOT be captured in video. Use ElevenLabs or Google Cloud for audio in recording.") : null;
+
+      // New admin panel UI (with fixed file upload and recording)
       return React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
         // Header
         React.createElement('div', { className: "flex justify-between items-center mb-6 pb-4 border-b border-gray-700" },
@@ -1651,7 +1667,8 @@
                 React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-xs px-3 py-1 rounded-full" }, "⏹️ Stop & Save"),
                 React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full" }, "📥 Download Video")
               ),
-              videoBlobUrl && React.createElement('div', { className: "mt-2 text-xs text-green-300" }, "✅ Video ready (includes audio if external TTS was used)")
+              videoBlobUrl && React.createElement('div', { className: "mt-2 text-xs text-green-300" }, "✅ Video ready (includes audio if external TTS was used)"),
+              systemVoiceWarning
             ),
             // TTS Settings (collapsible)
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
