@@ -21,6 +21,7 @@
     .settings-panel button { background: #2dd4bf; color: #111; font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; }
     .warning { background: #facc15; color: #1f2937; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; margin-top: 6px; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-gray-100">
   <div id="root">Loading application...</div>
@@ -114,7 +115,7 @@
     let audioPlayer = null;
     let audioQueue = [];
     let isAudioPlaying = false;
-    let recordingDestination = null; // MediaStreamDestination for recording
+    let recordingDestination = null;
     let audioElementsConnected = new Set();
 
     function playAudio(url, onEnd) {
@@ -127,12 +128,10 @@
         }
       }
       audioPlayer = new Audio(url);
-      // Connect to recording destination if recording is active
       if (recordingDestination && audioCtx) {
         try {
           const source = audioCtx.createMediaElementSource(audioPlayer);
           source.connect(recordingDestination);
-          // Also connect to speakers so user hears it
           source.connect(eqChain[0]);
           audioPlayer.sourceNode = source;
         } catch(e) {
@@ -302,13 +301,11 @@
         return;
       }
 
-      // If primary is system voice, use system directly (not captured in recording)
       if (storedPrimaryProvider === 'system') {
         systemFallback(text, style, onEnd);
         return;
       }
 
-      // Prepare request to backend
       let apiKey, voiceId, fallbackProvider, fallbackApiKey, fallbackVoiceId;
       if (storedPrimaryProvider === 'elevenlabs') {
         if (!storedElevenlabsKey) {
@@ -382,7 +379,7 @@
     let murmurStarted = false;
     let murmurSource = null;
     let lastReactionTime = 0;
-    let recordingDestinationNode = null; // MediaStreamDestination for recording
+    let recordingDestinationNode = null;
 
     function initAudio() {
       if (audioCtx) return;
@@ -415,11 +412,9 @@
       }
       eqChain[eqChain.length-1].connect(masterGain);
       
-      // Create a destination for recording (if not already)
       if (!recordingDestinationNode) {
         recordingDestinationNode = audioCtx.createMediaStreamDestination();
       }
-      // Also connect the eqChain output to recordingDestinationNode so all audio (ambience, reactions) goes there
       eqChain[eqChain.length-1].connect(recordingDestinationNode);
     }
 
@@ -439,7 +434,7 @@
       filter.frequency.value = 800;
       filter.Q.value = 1;
       const gain = audioCtx.createGain();
-      gain.gain.value = 0.045; // -28 dB
+      gain.gain.value = 0.045;
       noiseNode.connect(filter);
       filter.connect(gain);
       gain.connect(eqChain[0]);
@@ -566,7 +561,7 @@
     }
 
     // --------------------------------------------------------------
-    // Match parsing and simulation (unchanged)
+    // Match parsing and simulation
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -718,7 +713,7 @@
     }
 
     // --------------------------------------------------------------
-    // React components (admin panel layout)
+    // React components
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -815,6 +810,8 @@
       var [matchData, setMatchData] = React.useState(null);
       var [error, setError] = React.useState(null);
       var [fileName, setFileName] = React.useState("");
+      var [recentMatches, setRecentMatches] = React.useState([]);
+      var [loadingRecent, setLoadingRecent] = React.useState(false);
 
       var handleFileUpload = function(event) {
         var file = event.target.files[0];
@@ -835,61 +832,81 @@
         reader.readAsText(file);
       };
 
-      // Function to load from Cricsheet URL (daily JSON)
-      var loadFromCricsheet = function(date) {
-        var url = `https://cricsheet.org/downloads/${date}.json`;
-        fetch(url)
-          .then(response => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.json();
-          })
-          .then(json => {
-            var parsed = parseCricsheetJSON(json);
+      var loadRecentMatches = async function() {
+        setLoadingRecent(true);
+        setError(null);
+        try {
+          const response = await fetch('https://cricsheet.org/downloads/recently_added_7_male_json.zip');
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          const zip = await JSZip.loadAsync(blob);
+          const matches = [];
+          for (let fileName in zip.files) {
+            if (fileName.endsWith('.json')) {
+              const content = await zip.files[fileName].async('string');
+              try {
+                const json = JSON.parse(content);
+                const teams = json.info?.teams ? json.info.teams.join(' vs ') : 'Unknown match';
+                const date = json.info?.dates?.[0] || 'Unknown date';
+                const displayName = `${teams} – ${date}`;
+                matches.push({ fileName, displayName, json });
+              } catch(e) {
+                console.warn('Could not parse', fileName, e);
+              }
+            }
+          }
+          setRecentMatches(matches);
+        } catch (err) {
+          setError('Failed to load recent matches: ' + err.message);
+        } finally {
+          setLoadingRecent(false);
+        }
+      };
+
+      var selectRecentMatch = function(e) {
+        const idx = e.target.value;
+        if (idx === "") return;
+        const match = recentMatches[parseInt(idx)];
+        if (match) {
+          setFileName(match.fileName);
+          try {
+            const parsed = parseCricsheetJSON(match.json);
             setMatchData(parsed);
             setError(null);
-            setFileName(`${date}.json`);
-          })
-          .catch(err => {
-            setError(`Failed to load match from ${date}: ${err.message}`);
+          } catch (err) {
+            setError(err.message);
             setMatchData(null);
-          });
+          }
+        }
       };
 
       var resetToUpload = function() {
         setMatchData(null);
         setError(null);
         setFileName("");
+        setRecentMatches([]);
       };
-
-      // Generate last 7 days for dropdown
-      var getRecentDates = function() {
-        var dates = [];
-        for (var i = 1; i <= 7; i++) {
-          var d = new Date();
-          d.setDate(d.getDate() - i);
-          var year = d.getFullYear();
-          var month = String(d.getMonth() + 1).padStart(2, '0');
-          var day = String(d.getDate()).padStart(2, '0');
-          dates.push(`${year}-${month}-${day}`);
-        }
-        return dates;
-      };
-      var recentDates = getRecentDates();
 
       if (!matchData) {
-        // Show upload screen with recent matches dropdown
         return React.createElement('div', { className: "max-w-2xl mx-auto bg-gray-800/60 backdrop-blur-sm rounded-2xl p-8 border border-gray-700" },
           React.createElement('div', { className: "flex flex-col items-center justify-center gap-6" },
             React.createElement('div', { className: "w-full mb-4" },
-              React.createElement('label', { className: "block text-sm font-medium text-gray-300 mb-2" }, "Recent Men's Matches (last 7 days)"),
-              React.createElement('select', {
-                className: "w-full bg-gray-700 rounded-lg p-2 text-sm",
-                onChange: (e) => { if (e.target.value) loadFromCricsheet(e.target.value); }
-              },
-                React.createElement('option', { value: "" }, "-- Select a date --"),
-                recentDates.map(date => React.createElement('option', { key: date, value: date }, date))
-              ),
-              React.createElement('p', { className: "text-xs text-gray-400 mt-1" }, "Uses daily JSON from Cricsheet.org (if available)")
+              React.createElement('button', {
+                onClick: loadRecentMatches,
+                disabled: loadingRecent,
+                className: "w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-2 px-4 rounded-lg mb-4"
+              }, loadingRecent ? "Loading matches..." : "Load Recent Men's Matches (last 7 days)"),
+              recentMatches.length > 0 && React.createElement('div', null,
+                React.createElement('label', { className: "block text-sm font-medium text-gray-300 mb-2" }, "Select a match"),
+                React.createElement('select', {
+                  className: "w-full bg-gray-700 rounded-lg p-2 text-sm",
+                  onChange: selectRecentMatch,
+                  defaultValue: ""
+                },
+                  React.createElement('option', { value: "" }, "-- Choose a match --"),
+                  recentMatches.map((match, idx) => React.createElement('option', { key: idx, value: idx }, match.displayName))
+                )
+              )
             ),
             React.createElement('div', { className: "text-gray-400 text-sm" }, "OR"),
             React.createElement('label', { className: "flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-teal-500/50 rounded-xl cursor-pointer bg-gray-900/40 hover:bg-gray-800/60" },
@@ -906,7 +923,6 @@
           )
         );
       } else {
-        // Show the admin panel, passing the file upload handler and reset
         return React.createElement(MatchSimulator, {
           key: fileName,
           matchData: matchData,
@@ -1388,7 +1404,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Draw canvas with animations (unchanged)
+      // Draw canvas with animations
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -1562,13 +1578,12 @@
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
-      // Combined audio+video recording with initAudio check
+      // Combined audio+video recording
       var startRecording = function() {
         if (!canvasRef.current) {
           alert('Canvas not ready');
           return;
         }
-        // Ensure audio context is initialised
         if (!audioCtx) {
           initAudio();
           if (ambientEnabled && !muteAudio) setAmbience(true);
@@ -1627,12 +1642,10 @@
       var isMatchOver = isMatchFinished;
       var startDisabled = isMatchOver;
 
-      // Warning if system voice is selected (audio won't be recorded)
       var systemVoiceWarning = (storedPrimaryProvider === 'system') ? React.createElement('div', { className: "warning" }, "⚠️ System voice will NOT be captured in video. Use ElevenLabs or Google Cloud for audio in recording.") : null;
 
-      // New admin panel UI (with file upload in header and broadcast control moved up)
+      // Admin panel UI
       return React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
-        // Header with file upload button
         React.createElement('div', { className: "flex flex-wrap justify-between items-center mb-6 pb-4 border-b border-gray-700 gap-3" },
           React.createElement('div', { className: "flex items-center gap-3 flex-wrap" },
             React.createElement('h1', { className: "text-3xl font-bold bg-gradient-to-r from-teal-300 to-emerald-400 bg-clip-text text-transparent" }, "Cricket Broadcast Pro"),
@@ -1646,11 +1659,8 @@
             React.createElement('button', { onClick: toggleAmbience, className: `px-2 py-1 rounded text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}` }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off")
           )
         ),
-        // Two‑column layout
         React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
-          // Left column (Settings)
           React.createElement('div', { className: "space-y-6" },
-            // Broadcast Control (moved to top)
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
               React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Broadcast Control"),
               React.createElement('div', { className: "flex flex-wrap gap-2" },
@@ -1671,7 +1681,6 @@
               videoBlobUrl && React.createElement('div', { className: "mt-2 text-xs text-green-300" }, "✅ Video ready (includes audio if external TTS was used)"),
               systemVoiceWarning
             ),
-            // Stream Settings (placeholder)
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
               React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Stream Settings"),
               React.createElement('div', { className: "space-y-2 text-sm" },
@@ -1707,7 +1716,6 @@
                 React.createElement('p', { className: "text-xs text-gray-500 mt-2 italic" }, "Note: These are placeholders. Actual streaming requires external software/API integration.")
               )
             ),
-            // TTS Settings (collapsible)
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
               React.createElement('button', { id: "showSettingsBtn", className: "w-full text-left text-teal-300 font-semibold flex justify-between items-center" },
                 React.createElement('span', null, "TTS Provider Settings"),
@@ -1743,9 +1751,7 @@
               )
             )
           ),
-          // Right column (Live Overlay + Social Reactions)
           React.createElement('div', { className: "lg:col-span-2 space-y-6" },
-            // Live Overlay (current match status)
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
               React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Live Overlay"),
               React.createElement('div', { className: "flex justify-between items-center flex-wrap gap-2" },
@@ -1775,7 +1781,6 @@
               ),
               firstInningsStats && React.createElement('div', { className: "mt-2 text-xs text-gray-400" }, "1st innings: ", firstInningsStats.total, "/", firstInningsStats.wickets, " (", firstInningsStats.team, ")")
             ),
-            // Social Reactions / Commentary Feed
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
               React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Social Reactions"),
               React.createElement('div', { className: "h-48 overflow-y-auto space-y-2 text-sm" },
@@ -1792,14 +1797,12 @@
                 })
               )
             ),
-            // Broadcast Preview (Canvas)
             React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
               React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Broadcast Preview"),
               React.createElement('canvas', { ref: canvasRef, width: 600, height: 400, className: "w-full rounded-xl border border-teal-500/40", style: { aspectRatio: '600/400' } })
             )
           )
         ),
-        // Status messages
         (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "mt-4 bg-blue-800/50 p-2 rounded-xl text-center text-sm" }, "🏏 First innings finished! Click START to begin the chase."),
         (isMatchFinished) && React.createElement('div', { className: "mt-4 bg-gradient-to-r from-amber-800 to-orange-800 p-3 rounded-xl text-center result-banner" }, "🏆 MATCH RESULT 🏆 ", matchResult ? matchResult.split('.')[0] : `Finished: ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`)
       );
