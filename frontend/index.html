@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Cricket Live Studio – Animated Players & Realistic TTS</title>
-  <!-- Tailwind CSS CDN (used for utility classes) -->
+  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,12 +15,35 @@
   <div id="root">Loading application...</div>
   <div id="error-message" style="display: none;"></div>
 
-  <!-- React and ReactDOM from unpkg (reliable) -->
-  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <!-- Babel standalone for JSX -->
-  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
-  <!-- Our application code (JSX) -->
-  <script type="text/babel" src="app.js"></script>
+  <script>
+    // Helper to show error messages
+    function showError(msg) {
+      var errDiv = document.getElementById('error-message');
+      if (errDiv) {
+        errDiv.style.display = 'block';
+        errDiv.className = 'error-bar';
+        errDiv.innerHTML = '⚠️ ' + msg;
+      }
+    }
+    window.onerror = function(msg, url, line, col, error) {
+      showError((error ? error.message : msg) + (url ? ' at ' + url + ':' + line : ''));
+      return true;
+    };
+    // Check after a few seconds if React hasn't rendered
+    setTimeout(function() {
+      var root = document.getElementById('root');
+      if (root && root.innerHTML === 'Loading application...') {
+        showError('React app failed to load. Check console for errors.');
+      }
+    }, 5000);
+  </script>
+
+  <!-- React and ReactDOM from unpkg -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" onerror="showError('Failed to load React')"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" onerror="showError('Failed to load ReactDOM')"></script>
+  <!-- Babel standalone (for JSX) -->
+  <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js" onerror="showError('Failed to load Babel')"></script>
+  <!-- Our application code -->
+  <script type="text/babel" src="app.js" onerror="showError('Failed to load app.js')"></script>
 </body>
 </html>
