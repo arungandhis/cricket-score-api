@@ -1644,167 +1644,190 @@
 
       var systemVoiceWarning = (storedPrimaryProvider === 'system') ? React.createElement('div', { className: "warning" }, "⚠️ System voice will NOT be captured in video. Use ElevenLabs or Google Cloud for audio in recording.") : null;
 
-      // Admin panel UI
-      return React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
-        React.createElement('div', { className: "flex flex-wrap justify-between items-center mb-6 pb-4 border-b border-gray-700 gap-3" },
-          React.createElement('div', { className: "flex items-center gap-3 flex-wrap" },
-            React.createElement('h1', { className: "text-3xl font-bold bg-gradient-to-r from-teal-300 to-emerald-400 bg-clip-text text-transparent" }, "Cricket Broadcast Pro"),
-            React.createElement('label', { className: "cursor-pointer bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1.5 rounded-full transition" },
-              React.createElement('span', null, "📁 Upload New JSON"),
-              React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: onFileUpload })
-            )
-          ),
-          React.createElement('div', { className: "flex gap-2" },
-            React.createElement('button', { onClick: toggleMute, className: `px-2 py-1 rounded text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}` }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
-            React.createElement('button', { onClick: toggleAmbience, className: `px-2 py-1 rounded text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}` }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off")
-          )
-        ),
-        React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
-          React.createElement('div', { className: "space-y-6" },
-            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
-              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Broadcast Control"),
-              React.createElement('div', { className: "flex flex-wrap gap-2" },
-                !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: startDisabled, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-4 py-2 rounded-full text-sm font-semibold" }, "▶ START BROADCAST")
-                  : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-4 py-2 rounded-full text-sm font-semibold" }, "⏸ PAUSE"),
-                React.createElement('button', { onClick: manualNextBall, disabled: isMatchFinished || currentBallIdx+1 >= totalDeliveries, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-3 py-2 rounded-full text-xs" }, "⏩ Next Ball"),
-                React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-full text-xs" }, "🔄 Reset"),
-                React.createElement('div', { className: "flex items-center gap-1 ml-auto" },
-                  React.createElement('span', { className: "text-xs" }, "Speed:"),
-                  [1,2,4].map(function(sp) { return React.createElement('button', { key: sp, onClick: function() { setSpeed(sp); }, className: `px-2 py-1 rounded text-xs ${speed === sp ? "bg-teal-600" : "bg-gray-700"}` }, sp + "x"); })
-                )
-              ),
-              React.createElement('div', { className: "mt-3 flex gap-2" },
-                React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full" }, "🔴 Start Recording (with audio)"),
-                React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-xs px-3 py-1 rounded-full" }, "⏹️ Stop & Save"),
-                React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full" }, "📥 Download Video")
-              ),
-              videoBlobUrl && React.createElement('div', { className: "mt-2 text-xs text-green-300" }, "✅ Video ready (includes audio if external TTS was used)"),
-              systemVoiceWarning
-            ),
-            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
-              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Stream Settings"),
-              React.createElement('div', { className: "space-y-2 text-sm" },
-                React.createElement('div', null,
-                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "YouTube Stream Key"),
-                  React.createElement('input', { type: "text", placeholder: "ABCD-1234-WXYZ-5678", className: "w-full bg-gray-700 rounded p-1 text-xs" })
-                ),
-                React.createElement('div', null,
-                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "RTMP Server"),
-                  React.createElement('input', { type: "text", placeholder: "rtmp://a.rtmp.youtube.com/live2", className: "w-full bg-gray-700 rounded p-1 text-xs" })
-                ),
-                React.createElement('button', { className: "bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2" }, "Connect"),
-                React.createElement('hr', { className: "border-gray-600 my-2" }),
-                React.createElement('div', null,
-                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "Sportmonks API Key"),
-                  React.createElement('input', { type: "text", placeholder: "Enter your Sportmonks API key", className: "w-full bg-gray-700 rounded p-1 text-xs" })
-                ),
-                React.createElement('div', { className: "flex gap-2 mt-2" },
-                  React.createElement('input', { type: "text", placeholder: "Match ID", className: "flex-1 bg-gray-700 rounded p-1 text-xs" }),
-                  React.createElement('button', { className: "bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded" }, "Load")
-                ),
-                React.createElement('div', { className: "flex gap-2 mt-2" },
-                  React.createElement('div', null,
-                    React.createElement('label', { className: "block text-gray-400 text-xs" }, "Poll Interval (sec)"),
-                    React.createElement('input', { type: "number", defaultValue: "10", className: "w-20 bg-gray-700 rounded p-1 text-xs" })
-                  ),
-                  React.createElement('div', null,
-                    React.createElement('label', { className: "block text-gray-400 text-xs" }, "Max Balls Fetch"),
-                    React.createElement('input', { type: "number", defaultValue: "6", className: "w-20 bg-gray-700 rounded p-1 text-xs" })
-                  )
-                ),
-                React.createElement('button', { className: "bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2" }, "Save API Settings"),
-                React.createElement('p', { className: "text-xs text-gray-500 mt-2 italic" }, "Note: These are placeholders. Actual streaming requires external software/API integration.")
-              )
-            ),
-            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
-              React.createElement('button', { id: "showSettingsBtn", className: "w-full text-left text-teal-300 font-semibold flex justify-between items-center" },
-                React.createElement('span', null, "TTS Provider Settings"),
-                React.createElement('span', null, "▼")
-              ),
-              React.createElement('div', { id: "settingsPanel", style: { display: 'none' }, className: "mt-3 space-y-3 text-sm" },
-                React.createElement('div', null,
-                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "Primary Provider"),
-                  React.createElement('select', { id: "primaryProvider", className: "w-full bg-gray-700 rounded p-1" },
-                    React.createElement('option', { value: "system" }, "System Voice (browser)"),
-                    React.createElement('option', { value: "elevenlabs" }, "ElevenLabs"),
-                    React.createElement('option', { value: "google" }, "Google Cloud")
-                  )
-                ),
-                React.createElement('div', null,
-                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "ElevenLabs API Key"),
-                  React.createElement('input', { type: "password", id: "elevenlabsApiKey", className: "w-full bg-gray-700 rounded p-1 mb-1", placeholder: "sk_..." }),
-                  React.createElement('div', { className: "flex gap-1" },
-                    React.createElement('select', { id: "elevenlabsVoiceSelect", className: "flex-1 bg-gray-700 rounded p-1" }),
-                    React.createElement('button', { id: "refreshElevenVoices", className: "bg-teal-700 px-2 py-1 rounded text-xs" }, "Refresh")
-                  )
-                ),
-                React.createElement('div', null,
-                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "Google Cloud API Key"),
-                  React.createElement('input', { type: "password", id: "googleApiKey", className: "w-full bg-gray-700 rounded p-1 mb-1", placeholder: "AIza..." }),
-                  React.createElement('div', { className: "flex gap-1" },
-                    React.createElement('select', { id: "googleVoiceSelect", className: "flex-1 bg-gray-700 rounded p-1" }),
-                    React.createElement('button', { id: "refreshGoogleVoices", className: "bg-teal-700 px-2 py-1 rounded text-xs" }, "Refresh")
-                  )
-                ),
-                React.createElement('button', { id: "saveSettingsBtn", className: "bg-green-700 text-xs px-3 py-1 rounded mt-1" }, "Save Settings"),
-                React.createElement('p', { className: "text-xs text-gray-400 mt-1" }, "Keys stored in your browser. External TTS will be captured in video.")
-              )
-            )
-          ),
-          React.createElement('div', { className: "lg:col-span-2 space-y-6" },
-            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
-              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Live Overlay"),
-              React.createElement('div', { className: "flex justify-between items-center flex-wrap gap-2" },
-                React.createElement('div', null,
-                  React.createElement('div', { className: "text-3xl font-mono font-bold text-teal-300" }, matchState.totalRuns, "/", matchState.wickets),
-                  React.createElement('div', { className: "text-gray-400 text-sm" }, matchState.overs, " overs")
-                ),
-                React.createElement('div', { className: "text-right" },
-                  React.createElement('div', { className: "text-gray-400 text-xs" }, currentInningsIdx === 0 ? "1st Innings" : "Target: " + target),
-                  currentDelivery && React.createElement('div', { className: "text-sm font-mono" }, getLastName(currentDelivery.striker), " ", currentDelivery.runs, "*")
-                )
-              ),
-              React.createElement('div', { className: "mt-3 grid grid-cols-2 gap-2 text-sm" },
-                React.createElement('div', null,
-                  React.createElement('span', { className: "text-gray-400" }, "Striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery ? getLastName(currentDelivery.striker) : "-"),
-                  React.createElement('br', null),
-                  React.createElement('span', { className: "text-gray-400" }, "Bowler:"), " ", React.createElement('span', { className: "font-bold text-emerald-300" }, currentDelivery ? getLastName(currentDelivery.bowler) : "-")
-                ),
-                React.createElement('div', null,
-                  React.createElement('span', { className: "text-gray-400" }, "Non-striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery ? getLastName(currentDelivery.nonStriker) : "-"),
-                  React.createElement('br', null),
-                  React.createElement('span', { className: "text-gray-400" }, "Last Ball:"), " ", React.createElement('span', { className: "font-mono" }, currentDelivery ? currentDelivery.runs + " runs" + (currentDelivery.wicket ? " ❌" : "") : "-")
-                )
-              ),
-              React.createElement('div', { className: "mt-3 w-full bg-gray-700 h-1 rounded-full" },
-                React.createElement('div', { className: "bg-teal-400 h-1 rounded-full transition-all", style: { width: progressPercent + "%" } })
-              ),
-              firstInningsStats && React.createElement('div', { className: "mt-2 text-xs text-gray-400" }, "1st innings: ", firstInningsStats.total, "/", firstInningsStats.wickets, " (", firstInningsStats.team, ")")
-            ),
-            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
-              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Social Reactions"),
-              React.createElement('div', { className: "h-48 overflow-y-auto space-y-2 text-sm" },
-                commentaryLog.length === 0 && React.createElement('p', { className: "text-gray-500 italic text-xs" }, "No reactions yet."),
-                commentaryLog.map(function(c) {
-                  return React.createElement('div', { key: c.id, className: "p-2 rounded bg-gray-700/50 border-l-2 " + (c.isWicket ? "border-red-500" : "border-teal-500") },
-                    React.createElement('div', { className: "flex items-center gap-2" },
-                      React.createElement('span', { className: "text-gray-400 text-[10px]" }, c.timestamp),
-                      React.createElement('span', { className: "font-bold text-xs text-teal-300" }, "@fan"),
-                      React.createElement('span', { className: "text-gray-300 text-xs" }, "says:")
-                    ),
-                    React.createElement('p', { className: "text-gray-200 text-xs mt-1" }, c.text)
-                  );
-                })
-              )
-            ),
-            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
-              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Broadcast Preview"),
-              React.createElement('canvas', { ref: canvasRef, width: 600, height: 400, className: "w-full rounded-xl border border-teal-500/40", style: { aspectRatio: '600/400' } })
-            )
-          )
-        ),
-        (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "mt-4 bg-blue-800/50 p-2 rounded-xl text-center text-sm" }, "🏏 First innings finished! Click START to begin the chase."),
-        (isMatchFinished) && React.createElement('div', { className: "mt-4 bg-gradient-to-r from-amber-800 to-orange-800 p-3 rounded-xl text-center result-banner" }, "🏆 MATCH RESULT 🏆 ", matchResult ? matchResult.split('.')[0] : `Finished: ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`)
+      // Admin panel UI – using JSX
+      return (
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          {/* Header */}
+          <div className="flex flex-wrap justify-between items-center mb-6 pb-4 border-b border-gray-700 gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-teal-300 to-emerald-400 bg-clip-text text-transparent">Cricket Broadcast Pro</h1>
+              <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1.5 rounded-full transition">
+                <span>📁 Upload New JSON</span>
+                <input type="file" accept=".json" className="hidden" onChange={onFileUpload} />
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={toggleMute} className={`px-2 py-1 rounded text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}`}>{muteAudio ? "🔇 Audio Off" : "🔊 Audio On"}</button>
+              <button onClick={toggleAmbience} className={`px-2 py-1 rounded text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}`}>{ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off"}</button>
+            </div>
+          </div>
+
+          {/* Two‑column layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left column */}
+            <div className="space-y-6">
+              {/* Broadcast Control */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Broadcast Control</h3>
+                <div className="flex flex-wrap gap-2">
+                  {!isPlaying ? (
+                    <button onClick={startMatch} disabled={startDisabled} className="bg-green-700 hover:bg-green-600 disabled:opacity-50 px-4 py-2 rounded-full text-sm font-semibold">▶ START BROADCAST</button>
+                  ) : (
+                    <button onClick={pauseMatch} className="bg-yellow-700 hover:bg-yellow-600 px-4 py-2 rounded-full text-sm font-semibold">⏸ PAUSE</button>
+                  )}
+                  <button onClick={manualNextBall} disabled={isMatchFinished || currentBallIdx+1 >= totalDeliveries} className="bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-3 py-2 rounded-full text-xs">⏩ Next Ball</button>
+                  <button onClick={resetSimulation} className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-full text-xs">🔄 Reset</button>
+                  <div className="flex items-center gap-1 ml-auto">
+                    <span className="text-xs">Speed:</span>
+                    {[1,2,4].map(sp => (
+                      <button key={sp} onClick={() => setSpeed(sp)} className={`px-2 py-1 rounded text-xs ${speed === sp ? "bg-teal-600" : "bg-gray-700"}`}>{sp}x</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={startRecording} disabled={isPlaying === false && currentBallIdx === -1} className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full">🔴 Start Recording (with audio)</button>
+                  <button onClick={stopRecording} className="bg-gray-600 hover:bg-gray-500 text-xs px-3 py-1 rounded-full">⏹️ Stop & Save</button>
+                  <button onClick={downloadVideo} disabled={!videoBlobUrl} className="bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full">📥 Download Video</button>
+                </div>
+                {videoBlobUrl && <div className="mt-2 text-xs text-green-300">✅ Video ready (includes audio if external TTS was used)</div>}
+                {systemVoiceWarning}
+              </div>
+
+              {/* Stream Settings (placeholder) */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Stream Settings</h3>
+                <div className="space-y-2 text-sm">
+                  <div>
+                    <label className="block text-gray-400 mb-1">YouTube Stream Key</label>
+                    <input type="text" placeholder="ABCD-1234-WXYZ-5678" className="w-full bg-gray-700 rounded p-1 text-xs" />
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">RTMP Server</label>
+                    <input type="text" placeholder="rtmp://a.rtmp.youtube.com/live2" className="w-full bg-gray-700 rounded p-1 text-xs" />
+                  </div>
+                  <button className="bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2">Connect</button>
+                  <hr className="border-gray-600 my-2" />
+                  <div>
+                    <label className="block text-gray-400 mb-1">Sportmonks API Key</label>
+                    <input type="text" placeholder="Enter your Sportmonks API key" className="w-full bg-gray-700 rounded p-1 text-xs" />
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <input type="text" placeholder="Match ID" className="flex-1 bg-gray-700 rounded p-1 text-xs" />
+                    <button className="bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded">Load</button>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <div>
+                      <label className="block text-gray-400 text-xs">Poll Interval (sec)</label>
+                      <input type="number" defaultValue="10" className="w-20 bg-gray-700 rounded p-1 text-xs" />
+                    </div>
+                    <div>
+                      <label className="block text-gray-400 text-xs">Max Balls Fetch</label>
+                      <input type="number" defaultValue="6" className="w-20 bg-gray-700 rounded p-1 text-xs" />
+                    </div>
+                  </div>
+                  <button className="bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2">Save API Settings</button>
+                  <p className="text-xs text-gray-500 mt-2 italic">Note: These are placeholders. Actual streaming requires external software/API integration.</p>
+                </div>
+              </div>
+
+              {/* TTS Settings */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <button id="showSettingsBtn" className="w-full text-left text-teal-300 font-semibold flex justify-between items-center">
+                  <span>TTS Provider Settings</span>
+                  <span>▼</span>
+                </button>
+                <div id="settingsPanel" style={{ display: 'none' }} className="mt-3 space-y-3 text-sm">
+                  <div>
+                    <label className="block text-gray-400 mb-1">Primary Provider</label>
+                    <select id="primaryProvider" className="w-full bg-gray-700 rounded p-1">
+                      <option value="system">System Voice (browser)</option>
+                      <option value="elevenlabs">ElevenLabs</option>
+                      <option value="google">Google Cloud</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">ElevenLabs API Key</label>
+                    <input type="password" id="elevenlabsApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="sk_..." />
+                    <div className="flex gap-1">
+                      <select id="elevenlabsVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select>
+                      <button id="refreshElevenVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">Google Cloud API Key</label>
+                    <input type="password" id="googleApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="AIza..." />
+                    <div className="flex gap-1">
+                      <select id="googleVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select>
+                      <button id="refreshGoogleVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button>
+                    </div>
+                  </div>
+                  <button id="saveSettingsBtn" className="bg-green-700 text-xs px-3 py-1 rounded mt-1">Save Settings</button>
+                  <p className="text-xs text-gray-400 mt-1">Keys stored in your browser. External TTS will be captured in video.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right column */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Live Overlay */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Live Overlay</h3>
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <div>
+                    <div className="text-3xl font-mono font-bold text-teal-300">{matchState.totalRuns}/{matchState.wickets}</div>
+                    <div className="text-gray-400 text-sm">{matchState.overs} overs</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-gray-400 text-xs">{currentInningsIdx === 0 ? "1st Innings" : "Target: " + target}</div>
+                    {currentDelivery && <div className="text-sm font-mono">{getLastName(currentDelivery.striker)} {currentDelivery.runs}*</div>}
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-gray-400">Striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.striker) : "-"}</span><br />
+                    <span className="text-gray-400">Bowler:</span> <span className="font-bold text-emerald-300">{currentDelivery ? getLastName(currentDelivery.bowler) : "-"}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-400">Non-striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.nonStriker) : "-"}</span><br />
+                    <span className="text-gray-400">Last Ball:</span> <span className="font-mono">{currentDelivery ? currentDelivery.runs + " runs" + (currentDelivery.wicket ? " ❌" : "") : "-"}</span>
+                  </div>
+                </div>
+                <div className="mt-3 w-full bg-gray-700 h-1 rounded-full">
+                  <div className="bg-teal-400 h-1 rounded-full transition-all" style={{ width: progressPercent + "%" }}></div>
+                </div>
+                {firstInningsStats && <div className="mt-2 text-xs text-gray-400">1st innings: {firstInningsStats.total}/{firstInningsStats.wickets} ({firstInningsStats.team})</div>}
+              </div>
+
+              {/* Social Reactions / Commentary Feed */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Social Reactions</h3>
+                <div className="h-48 overflow-y-auto space-y-2 text-sm">
+                  {commentaryLog.length === 0 && <p className="text-gray-500 italic text-xs">No reactions yet.</p>}
+                  {commentaryLog.map(c => (
+                    <div key={c.id} className={`p-2 rounded bg-gray-700/50 border-l-2 ${c.isWicket ? "border-red-500" : "border-teal-500"}`}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 text-[10px]">{c.timestamp}</span>
+                        <span className="font-bold text-xs text-teal-300">@fan</span>
+                        <span className="text-gray-300 text-xs">says:</span>
+                      </div>
+                      <p className="text-gray-200 text-xs mt-1">{c.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Broadcast Preview (Canvas) */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Broadcast Preview</h3>
+                <canvas ref={canvasRef} width={600} height={400} className="w-full rounded-xl border border-teal-500/40" style={{ aspectRatio: '600/400' }}></canvas>
+              </div>
+            </div>
+          </div>
+
+          {/* Status messages */}
+          {(currentInningsIdx === 0 && isInningsFinished) && <div className="mt-4 bg-blue-800/50 p-2 rounded-xl text-center text-sm">🏏 First innings finished! Click START to begin the chase.</div>}
+          {isMatchFinished && <div className="mt-4 bg-gradient-to-r from-amber-800 to-orange-800 p-3 rounded-xl text-center result-banner">🏆 MATCH RESULT 🏆 {matchResult ? matchResult.split('.')[0] : `Finished: ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`}</div>}
+        </div>
       );
     };
 
