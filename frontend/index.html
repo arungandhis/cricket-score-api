@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Multi‑Provider TTS</title>
+  <title>Cricket Live Studio – Audio+Video Recording</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -108,18 +108,37 @@
     const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com'; // Update if needed
 
     // --------------------------------------------------------------
-    // TTS audio queue (for backend audio)
+    // TTS audio queue (for backend audio) with recording support
     // --------------------------------------------------------------
     let audioPlayer = null;
     let audioQueue = [];
     let isAudioPlaying = false;
+    let recordingDestination = null; // MediaStreamDestination for recording
+    let audioElementsConnected = new Set(); // track which audio elements are connected to destination
 
     function playAudio(url, onEnd) {
       if (audioPlayer) {
         audioPlayer.pause();
         audioPlayer.src = '';
+        // remove previous connection if any
+        if (audioPlayer.sourceNode) {
+          try { audioPlayer.sourceNode.disconnect(); } catch(e) {}
+          audioPlayer.sourceNode = null;
+        }
       }
       audioPlayer = new Audio(url);
+      // Connect to recording destination if recording is active
+      if (recordingDestination && audioCtx) {
+        try {
+          const source = audioCtx.createMediaElementSource(audioPlayer);
+          source.connect(recordingDestination);
+          // Also connect to speakers so user hears it
+          source.connect(eqChain[0]);
+          audioPlayer.sourceNode = source;
+        } catch(e) {
+          console.warn('Could not connect audio to recording destination', e);
+        }
+      }
       audioPlayer.onended = () => {
         isAudioPlaying = false;
         if (onEnd) onEnd();
@@ -144,13 +163,17 @@
       if (audioPlayer) {
         audioPlayer.pause();
         audioPlayer.src = '';
+        if (audioPlayer.sourceNode) {
+          try { audioPlayer.sourceNode.disconnect(); } catch(e) {}
+          audioPlayer.sourceNode = null;
+        }
       }
       audioQueue = [];
       isAudioPlaying = false;
     }
 
     // --------------------------------------------------------------
-    // System voice fallback (browser TTS)
+    // System voice fallback (browser TTS) – not captured in recording
     // --------------------------------------------------------------
     let systemSpeechQueue = [];
     let isSystemSpeaking = false;
@@ -254,7 +277,6 @@
     // --------------------------------------------------------------
     // Multi‑provider TTS dispatcher
     // --------------------------------------------------------------
-    // Stored settings
     let storedPrimaryProvider = localStorage.getItem('primary_provider') || 'system';
     let storedElevenlabsKey = localStorage.getItem('elevenlabs_api_key') || '';
     let storedElevenlabsVoice = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM';
@@ -280,7 +302,7 @@
         return;
       }
 
-      // If primary is system voice, use system directly
+      // If primary is system voice, use system directly (not captured in recording)
       if (storedPrimaryProvider === 'system') {
         systemFallback(text, style, onEnd);
         return;
@@ -295,7 +317,6 @@
         }
         apiKey = storedElevenlabsKey;
         voiceId = storedElevenlabsVoice;
-        // If we have Google key, use it as fallback
         if (storedGoogleKey) {
           fallbackProvider = 'google';
           fallbackApiKey = storedGoogleKey;
@@ -318,7 +339,6 @@
           fallbackProvider = null;
         }
       } else {
-        // Should not happen
         systemFallback(text, style, onEnd);
         return;
       }
@@ -353,7 +373,7 @@
     }
 
     // --------------------------------------------------------------
-    // Audio Context for stadium ambience (unchanged)
+    // Audio Context for stadium ambience with recording support
     // --------------------------------------------------------------
     let audioCtx = null;
     let masterGain = null;
@@ -362,6 +382,7 @@
     let murmurStarted = false;
     let murmurSource = null;
     let lastReactionTime = 0;
+    let recordingDestinationNode = null; // MediaStreamDestination for recording
 
     function initAudio() {
       if (audioCtx) return;
@@ -393,6 +414,13 @@
         eqChain[i].connect(eqChain[i+1]);
       }
       eqChain[eqChain.length-1].connect(masterGain);
+      
+      // Create a destination for recording (if not already)
+      if (!recordingDestinationNode) {
+        recordingDestinationNode = audioCtx.createMediaStreamDestination();
+      }
+      // Also connect the eqChain output to recordingDestinationNode so all audio (ambience, reactions) goes there
+      eqChain[eqChain.length-1].connect(recordingDestinationNode);
     }
 
     function startCrowdMurmur() {
@@ -690,7 +718,7 @@
     }
 
     // --------------------------------------------------------------
-    // React components (unchanged except the settings panel)
+    // React components (unchanged except recording)
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -915,10 +943,9 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Settings UI initialization (multi‑provider)
+      // Settings UI initialization (multi‑provider) – same as before
       React.useEffect(function() {
         try {
-          // Populate inputs with stored values
           const primarySelect = document.getElementById('primaryProvider');
           const elevenlabsKey = document.getElementById('elevenlabsApiKey');
           const elevenlabsVoice = document.getElementById('elevenlabsVoiceSelect');
@@ -931,7 +958,6 @@
           if (googleKey) googleKey.value = storedGoogleKey;
           if (googleVoice && storedGoogleVoice) googleVoice.value = storedGoogleVoice;
 
-          // Refresh voices for ElevenLabs
           const refreshEleven = document.getElementById('refreshElevenVoices');
           if (refreshEleven) {
             refreshEleven.onclick = async () => {
@@ -970,7 +996,6 @@
             };
           }
 
-          // Refresh voices for Google Cloud
           const refreshGoogle = document.getElementById('refreshGoogleVoices');
           if (refreshGoogle) {
             refreshGoogle.onclick = async () => {
@@ -1005,7 +1030,6 @@
             };
           }
 
-          // Save settings
           const saveBtn = document.getElementById('saveSettingsBtn');
           if (saveBtn) {
             saveBtn.onclick = () => {
@@ -1019,7 +1043,6 @@
             };
           }
 
-          // Toggle settings panel
           const settingsBtn = document.getElementById('showSettingsBtn');
           const panel = document.getElementById('settingsPanel');
           if (settingsBtn && panel) {
@@ -1308,7 +1331,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Draw canvas with animations
+      // Draw canvas with animations (unchanged)
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -1482,15 +1505,33 @@
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
+      // Combined audio+video recording
       var startRecording = function() {
         if (!canvasRef.current) return;
-        var stream = canvasRef.current.captureStream(30);
+        // Ensure audio context is active
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        // Capture canvas stream
+        const canvasStream = canvasRef.current.captureStream(30);
+        // Get audio stream from our destination (if recordingDestinationNode exists)
+        let audioStream = null;
+        if (recordingDestinationNode && recordingDestinationNode.stream) {
+          audioStream = recordingDestinationNode.stream;
+        }
+        let combinedStream;
+        if (audioStream) {
+          const videoTracks = canvasStream.getVideoTracks();
+          const audioTracks = audioStream.getAudioTracks();
+          combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+        } else {
+          combinedStream = canvasStream; // fallback to video only
+        }
+
         recordedChunksRef.current = [];
-        var mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        const mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
         mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
         mediaRecorder.onstop = function() {
-          var blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-          var url = URL.createObjectURL(blob);
+          const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
           setVideoBlobUrl(url);
           setIsRecording(false);
         };
@@ -1498,7 +1539,11 @@
         mediaRecorderRef.current = mediaRecorder;
         setIsRecording(true);
       };
-      var stopRecording = function() { if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop(); };
+
+      var stopRecording = function() {
+        if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+      };
+
       var downloadVideo = function() {
         if (videoBlobUrl) {
           var a = document.createElement('a');
@@ -1511,6 +1556,7 @@
           alert("No recorded video. Click 'Start Recording' and simulate the match.");
         }
       };
+
       var progressPercent = (currentBallIdx >= 0 && totalDeliveries > 0) ? ((currentBallIdx+1)/totalDeliveries)*100 : 0;
       var isMatchOver = isMatchFinished;
       var startDisabled = isMatchOver;
@@ -1613,12 +1659,12 @@
             React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "📹 VIDEO COMMENTARY (Broadcast)"),
             React.createElement('canvas', { ref: canvasRef, width: 600, height: 400, className: "w-full h-auto rounded-xl border border-teal-500/40", style: { aspectRatio: '600/400' } }),
             React.createElement('div', { className: "flex flex-wrap gap-2 mt-4" },
-              !isRecording ? React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "🔴 Start Recording")
+              !isRecording ? React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "🔴 Start Recording (with audio)")
                 : React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1.5 rounded-full" }, "⏹️ Stop & Save"),
               React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "📥 Download Video")
             ),
-            videoBlobUrl && React.createElement('div', { className: "mt-3 text-xs text-center text-green-300 bg-gray-900/60 p-2 rounded-lg" }, "✅ Video ready! Download and upload to YouTube (WebM format)."),
-            React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas. WebM videos are accepted by YouTube. You can also convert to MP4 using free online tools if needed.")
+            videoBlobUrl && React.createElement('div', { className: "mt-3 text-xs text-center text-green-300 bg-gray-900/60 p-2 rounded-lg" }, "✅ Video ready! Download and upload to YouTube (WebM format). Audio is captured if you used an external TTS provider."),
+            React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas and audio from external TTS (ElevenLabs/Google) and stadium ambience. System voice (browser) is not captured.")
           )
         ),
         (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" }, "🏏 First innings finished! Click START to begin the chase. 🏏"),
