@@ -4,6 +4,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Readable } = require('stream');
 
 const app = express();
 app.use(cors());
@@ -22,75 +23,20 @@ function processQueue() {
   if (requestQueue.length === 0) return;
   processing = true;
   const { req, res } = requestQueue.shift();
-  // Process the request
   handleRequest(req, res).finally(() => {
     processing = false;
-    // Schedule next after interval
     setTimeout(() => processQueue(), MIN_INTERVAL_MS);
   });
 }
 
-// Function to handle the actual TTS request
-async function handleRequest(req, res) {
-  const { text, style = 'normal', apiKey, voiceId } = req.body;
-  if (!text) return res.status(400).send('Missing text');
-  if (!apiKey) return res.status(400).send('Missing ElevenLabs API key');
-  if (!voiceId) return res.status(400).send('Missing voice ID');
-
-  const maskedKey = apiKey.substring(0, 8) + '...' + apiKey.slice(-4);
-  console.log(`Processing request for: "${text.substring(0, 50)}..."`);
-  console.log(`API key: ${maskedKey}, voiceId: ${voiceId}, style: ${style}`);
-
-  // Check cache
-  const cacheKey = getCacheKey(text, voiceId, apiKey);
-  const cachePath = path.join(CACHE_DIR, cacheKey);
-  if (fs.existsSync(cachePath)) {
-    console.log('Serving from cache:', cacheKey);
-    res.set('Content-Type', 'audio/mpeg');
-    return fs.createReadStream(cachePath).pipe(res);
-  }
-
-  try {
-    console.log('Calling ElevenLabs API...');
-    const audioStream = await elevenLabsGenerate(text, style, apiKey, voiceId);
-    const writeStream = fs.createWriteStream(cachePath);
-    await new Promise((resolve, reject) => {
-      audioStream.pipe(writeStream);
-      writeStream.on('finish', resolve);
-      writeStream.on('error', reject);
-      audioStream.on('error', reject);
-    });
-    console.log('Audio generated and cached.');
-    res.set('Content-Type', 'audio/mpeg');
-    fs.createReadStream(cachePath).pipe(res);
-  } catch (err) {
-    console.error('ElevenLabs error:', err.message);
-    if (err.response) {
-      console.error('Status:', err.response.status);
-      // read body if possible
-      if (err.response.data && typeof err.response.data.pipe === 'function') {
-        const chunks = [];
-        err.response.data.on('data', chunk => chunks.push(chunk));
-        err.response.data.on('end', () => {
-          const body = Buffer.concat(chunks).toString();
-          console.error('Response body:', body);
-        });
-      } else {
-        console.error('Response data:', err.response.data);
-      }
-    }
-    res.status(500).send('TTS error');
-  }
-}
-
-// Helper: get cache key
-function getCacheKey(text, voiceId, apiKey) {
+// Helper: generate cache key that includes provider, text, voice, and key hash
+function getCacheKey(provider, text, voiceId, apiKey) {
   const keyHash = crypto.createHash('md5').update(apiKey || 'default').digest('hex').substring(0, 8);
   const textHash = crypto.createHash('md5').update(text).digest('hex');
-  return `${keyHash}_${voiceId}_${textHash}.mp3`;
+  return `${provider}_${keyHash}_${voiceId}_${textHash}.mp3`;
 }
 
-// ElevenLabs request (uses provided key and voice)
+// ---------- ElevenLabs ----------
 async function elevenLabsGenerate(text, style, apiKey, voiceId) {
   let stability = 0.5, similarity = 0.75, styleBoost = 0.5;
   if (style === 'excited') {
@@ -120,23 +66,170 @@ async function elevenLabsGenerate(text, style, apiKey, voiceId) {
   return response.data;
 }
 
-// Voices endpoint (unchanged)
+// ---------- Google Cloud TTS ----------
+async function googleTtsGenerate(text, style, apiKey, voiceId) {
+  let speakingRate = 0.95;
+  let pitch = 0.0;
+  if (style === 'excited') {
+    speakingRate = 1.05;
+    pitch = 2.0;
+  } else if (style === 'dramatic') {
+    speakingRate = 1.1;
+    pitch = 1.5;
+  }
+  const url = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`;
+  const payload = {
+    input: { text: text },
+    voice: { languageCode: 'en-GB', name: voiceId || 'en-GB-Wavenet-A' },
+    audioConfig: {
+      audioEncoding: 'MP3',
+      speakingRate: speakingRate,
+      pitch: pitch
+    }
+  };
+  const response = await axios.post(url, payload);
+  const audioContent = response.data.audioContent;
+  const buffer = Buffer.from(audioContent, 'base64');
+  const stream = new Readable();
+  stream.push(buffer);
+  stream.push(null);
+  return stream;
+}
+
+// ---------- Voice List Endpoints ----------
 app.post('/voices', async (req, res) => {
-  const { apiKey } = req.body;
-  if (!apiKey) return res.status(400).send('Missing API key');
+  const { provider, apiKey } = req.body;
+  if (!provider || !apiKey) return res.status(400).send('Missing provider or API key');
   try {
-    const response = await axios.get('https://api.elevenlabs.io/v1/voices', {
-      headers: { 'xi-api-key': apiKey }
-    });
-    res.json(response.data.voices);
+    if (provider === 'elevenlabs') {
+      const response = await axios.get('https://api.elevenlabs.io/v1/voices', {
+        headers: { 'xi-api-key': apiKey }
+      });
+      res.json(response.data.voices);
+    } else if (provider === 'google') {
+      const url = `https://texttospeech.googleapis.com/v1/voices?key=${apiKey}`;
+      const response = await axios.get(url);
+      // Filter English voices (optional)
+      const englishVoices = response.data.voices.filter(v => v.languageCodes.some(lc => lc.startsWith('en')));
+      res.json(englishVoices);
+    } else {
+      res.status(400).send('Invalid provider');
+    }
   } catch (err) {
-    console.error('Error fetching voices:', err.message);
+    console.error(`Error fetching voices for ${provider}:`, err.message);
     if (err.response) console.error('Status:', err.response.status);
     res.status(500).send('Could not fetch voices');
   }
 });
 
-// Main endpoint: add to queue
+// ---------- Main TTS Endpoint (with fallback) ----------
+async function handleRequest(req, res) {
+  const {
+    text,
+    style = 'normal',
+    provider,
+    apiKey,
+    voiceId,
+    fallbackProvider,
+    fallbackApiKey,
+    fallbackVoiceId
+  } = req.body;
+
+  if (!text) return res.status(400).send('Missing text');
+  if (!provider || !apiKey || !voiceId) {
+    return res.status(400).send('Missing provider, API key, or voice ID');
+  }
+
+  console.log(`Processing request for provider: ${provider}, text: "${text.substring(0, 50)}..."`);
+
+  // Primary cache key
+  const cacheKey = getCacheKey(provider, text, voiceId, apiKey);
+  const cachePath = path.join(CACHE_DIR, cacheKey);
+  if (fs.existsSync(cachePath)) {
+    console.log('Serving from cache:', cacheKey);
+    res.set('Content-Type', 'audio/mpeg');
+    return fs.createReadStream(cachePath).pipe(res);
+  }
+
+  // Try primary provider
+  let success = false;
+  let errorMsg = '';
+
+  try {
+    let audioStream;
+    if (provider === 'elevenlabs') {
+      audioStream = await elevenLabsGenerate(text, style, apiKey, voiceId);
+    } else if (provider === 'google') {
+      audioStream = await googleTtsGenerate(text, style, apiKey, voiceId);
+    } else {
+      throw new Error('Invalid provider');
+    }
+    // Save to cache
+    const writeStream = fs.createWriteStream(cachePath);
+    await new Promise((resolve, reject) => {
+      audioStream.pipe(writeStream);
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+      audioStream.on('error', reject);
+    });
+    console.log('Audio generated and cached (primary).');
+    res.set('Content-Type', 'audio/mpeg');
+    return fs.createReadStream(cachePath).pipe(res);
+  } catch (err) {
+    console.error(`Primary provider ${provider} failed:`, err.message);
+    if (err.response) {
+      console.error('Status:', err.response.status);
+      // Capture response body for more details
+      if (err.response.data && typeof err.response.data.pipe === 'function') {
+        const chunks = [];
+        err.response.data.on('data', chunk => chunks.push(chunk));
+        err.response.data.on('end', () => {
+          const body = Buffer.concat(chunks).toString();
+          console.error('Response body:', body);
+        });
+      } else {
+        console.error('Response data:', err.response.data);
+      }
+    }
+    errorMsg = err.message;
+
+    // Try fallback if provided
+    if (fallbackProvider && fallbackApiKey && fallbackVoiceId) {
+      console.log(`Attempting fallback to ${fallbackProvider}...`);
+      try {
+        let fallbackStream;
+        if (fallbackProvider === 'elevenlabs') {
+          fallbackStream = await elevenLabsGenerate(text, style, fallbackApiKey, fallbackVoiceId);
+        } else if (fallbackProvider === 'google') {
+          fallbackStream = await googleTtsGenerate(text, style, fallbackApiKey, fallbackVoiceId);
+        } else {
+          throw new Error('Invalid fallback provider');
+        }
+        // Save fallback to its own cache (using fallback's cache key)
+        const fallbackCacheKey = getCacheKey(fallbackProvider, text, fallbackVoiceId, fallbackApiKey);
+        const fallbackCachePath = path.join(CACHE_DIR, fallbackCacheKey);
+        const writeStream = fs.createWriteStream(fallbackCachePath);
+        await new Promise((resolve, reject) => {
+          fallbackStream.pipe(writeStream);
+          writeStream.on('finish', resolve);
+          writeStream.on('error', reject);
+          fallbackStream.on('error', reject);
+        });
+        console.log('Fallback succeeded, audio cached.');
+        res.set('Content-Type', 'audio/mpeg');
+        return fs.createReadStream(fallbackCachePath).pipe(res);
+      } catch (fallbackErr) {
+        console.error(`Fallback provider ${fallbackProvider} also failed:`, fallbackErr.message);
+        if (fallbackErr.response) console.error('Fallback response:', fallbackErr.response.status);
+        errorMsg += `; fallback: ${fallbackErr.message}`;
+      }
+    }
+    // If we get here, all attempts failed
+    res.status(500).send(`TTS error: ${errorMsg}`);
+  }
+}
+
+// Endpoint to accept requests (adds to queue)
 app.post('/speak', (req, res) => {
   requestQueue.push({ req, res });
   processQueue();
