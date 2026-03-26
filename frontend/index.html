@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Live Studio – Audio+Video Recording</title>
+  <title>Cricket Broadcast Pro – Admin Panel</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     * { font-family: 'Inter', sans-serif; }
     .commentary-text { font-family: 'JetBrains Mono', monospace; }
-    canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; }
+    canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; width: 100%; height: auto; }
     .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; }
     .stats-table { overflow-x: auto; max-width: 100%; }
     .stats-table table { min-width: 500px; }
     .result-banner { animation: pulse 1s ease-in-out infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-    select { background: #1f2937; color: white; border-radius: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+    select, input { background: #1f2937; color: white; border-radius: 0.5rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
     .settings-panel { background: #1f2937; border-radius: 0.75rem; padding: 0.75rem; margin-top: 0.5rem; }
-    .settings-panel input, .settings-panel select { background: #374151; color: white; border: none; border-radius: 0.375rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+    .settings-panel input, .settings-panel select { background: #374151; border: none; border-radius: 0.375rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
     .settings-panel button { background: #2dd4bf; color: #111; font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; }
   </style>
 </head>
@@ -114,13 +114,12 @@
     let audioQueue = [];
     let isAudioPlaying = false;
     let recordingDestination = null; // MediaStreamDestination for recording
-    let audioElementsConnected = new Set(); // track which audio elements are connected to destination
+    let audioElementsConnected = new Set();
 
     function playAudio(url, onEnd) {
       if (audioPlayer) {
         audioPlayer.pause();
         audioPlayer.src = '';
-        // remove previous connection if any
         if (audioPlayer.sourceNode) {
           try { audioPlayer.sourceNode.disconnect(); } catch(e) {}
           audioPlayer.sourceNode = null;
@@ -566,7 +565,7 @@
     }
 
     // --------------------------------------------------------------
-    // Match parsing and simulation (unchanged, same as before)
+    // Match parsing and simulation (unchanged)
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -718,7 +717,7 @@
     }
 
     // --------------------------------------------------------------
-    // React components (unchanged except recording)
+    // React components (admin panel layout)
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -943,7 +942,7 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Settings UI initialization (multi‑provider) – same as before
+      // Settings UI initialization (multi‑provider)
       React.useEffect(function() {
         try {
           const primarySelect = document.getElementById('primaryProvider');
@@ -1508,11 +1507,8 @@
       // Combined audio+video recording
       var startRecording = function() {
         if (!canvasRef.current) return;
-        // Ensure audio context is active
         if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-        // Capture canvas stream
         const canvasStream = canvasRef.current.captureStream(30);
-        // Get audio stream from our destination (if recordingDestinationNode exists)
         let audioStream = null;
         if (recordingDestinationNode && recordingDestinationNode.stream) {
           audioStream = recordingDestinationNode.stream;
@@ -1523,7 +1519,7 @@
           const audioTracks = audioStream.getAudioTracks();
           combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
         } else {
-          combinedStream = canvasStream; // fallback to video only
+          combinedStream = canvasStream;
         }
 
         recordedChunksRef.current = [];
@@ -1561,114 +1557,188 @@
       var isMatchOver = isMatchFinished;
       var startDisabled = isMatchOver;
 
-      return React.createElement('div', { className: "space-y-6" },
-        React.createElement('div', { className: "flex flex-wrap justify-between items-center gap-3 bg-gray-800/50 p-4 rounded-2xl" },
+      // New admin panel UI
+      return React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
+        // Header
+        React.createElement('div', { className: "flex justify-between items-center mb-6 pb-4 border-b border-gray-700" },
           React.createElement('div', null,
-            React.createElement('h2', { className: "text-2xl font-bold" }, matchInfo.teams),
-            React.createElement('p', { className: "text-sm text-gray-300" }, matchInfo.venue + " • " + matchInfo.date)
+            React.createElement('h1', { className: "text-3xl font-bold bg-gradient-to-r from-teal-300 to-emerald-400 bg-clip-text text-transparent" }, "Cricket Broadcast Pro"),
+            React.createElement('p', { className: "text-xs text-gray-400" }, "Admin Panel • v1.3")
           ),
-          React.createElement('button', { onClick: props.onReset, className: "px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm" }, "🔄 Upload New JSON")
-        ),
-        React.createElement('div', { className: "bg-teal-900/30 border border-teal-500/50 rounded-lg p-2 text-center text-sm" }, "🏆 ", matchInfo.toss),
-        React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
-          React.createElement('div', { className: "lg:col-span-2 space-y-4" },
-            React.createElement('div', { className: "bg-black/40 rounded-2xl p-5 border border-teal-500/30" },
-              React.createElement('div', { className: "flex justify-between items-center flex-wrap" },
-                React.createElement('div', null,
-                  React.createElement('span', { className: "text-4xl font-black text-teal-300" }, matchState.totalRuns),
-                  React.createElement('span', { className: "text-2xl font-bold text-gray-300" }, "/", matchState.wickets),
-                  React.createElement('div', { className: "text-gray-400 text-sm mt-1" }, "Innings ", currentInningsIdx+1, " • Overs: ", matchState.overs, " (", matchState.legalBalls, " legal balls)")
-                ),
-                React.createElement('div', { className: "bg-teal-900/50 px-4 py-2 rounded-xl text-right" },
-                  React.createElement('div', { className: "text-xs text-teal-300" }, currentInningsIdx === 1 ? "Target: " + target : "1st Innings"),
-                  React.createElement('div', { className: "text-sm font-mono" }, currentInningsIdx === 1 ? matchState.totalRuns + " / " + (target-1) : "")
-                )
-              ),
-              React.createElement('div', { className: "w-full bg-gray-700 h-2 rounded-full mt-4" },
-                React.createElement('div', { className: "bg-teal-400 h-2 rounded-full transition-all duration-300", style: { width: progressPercent + "%" } })
-              ),
-              currentDelivery && React.createElement('div', { className: "grid grid-cols-2 gap-4 mt-5 text-sm" },
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, getLastName(currentDelivery.striker))),
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Non-striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, getLastName(currentDelivery.nonStriker))),
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Bowler:"), " ", React.createElement('span', { className: "font-bold text-emerald-300" }, getLastName(currentDelivery.bowler))),
-                React.createElement('div', null, React.createElement('span', { className: "text-gray-400" }, "Last Ball:"), " ", React.createElement('span', { className: "font-mono" }, currentDelivery.runs, " runs", currentDelivery.wicket ? " ❌ Wicket" : ""))
-              )
-            ),
-            React.createElement('div', { className: "flex flex-wrap gap-3 items-center bg-gray-800/40 p-3 rounded-xl" },
-              !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: startDisabled, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-5 py-2 rounded-full font-semibold" }, "▶ START / RESUME")
-                : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-5 py-2 rounded-full font-semibold" }, "⏸ PAUSE"),
-              React.createElement('button', { onClick: manualNextBall, disabled: isMatchFinished || currentBallIdx+1 >= totalDeliveries, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-4 py-2 rounded-full text-sm" }, "⏩ Next Ball"),
-              React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-full text-sm" }, "🔄 Reset"),
-              React.createElement('div', { className: "flex items-center gap-2 ml-auto" },
-                React.createElement('span', { className: "text-xs" }, "Speed:"),
-                [1,2,4].map(function(sp) { return React.createElement('button', { key: sp, onClick: function() { setSpeed(sp); }, className: "px-3 py-1 rounded-md text-xs " + (speed === sp ? "bg-teal-600" : "bg-gray-700") }, sp + "x"); })
-              ),
-              React.createElement('button', { onClick: toggleMute, className: "px-3 py-1 rounded-md text-xs " + (muteAudio ? "bg-red-700" : "bg-teal-700") }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
-              React.createElement('button', { onClick: toggleAmbience, className: "px-3 py-1 rounded-md text-xs " + (ambientEnabled ? "bg-green-700" : "bg-gray-600") }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off"),
-              React.createElement('button', { id: "showSettingsBtn", className: "px-2 py-1 rounded-md text-xs bg-gray-600 hover:bg-gray-500" }, "⚙️ Settings")
-            ),
-            // Settings panel (initially hidden)
-            React.createElement('div', { id: "settingsPanel", style: { display: 'none' }, className: "bg-gray-800/70 p-3 rounded-xl mt-2" },
-              React.createElement('div', { className: "text-sm font-semibold text-teal-300 mb-2" }, "TTS Provider Settings"),
-              React.createElement('div', { className: "mb-2" },
-                React.createElement('label', { className: "text-xs text-gray-300 block mb-1" }, "Primary Provider:"),
-                React.createElement('select', { id: "primaryProvider", className: "w-full text-xs bg-gray-700 rounded p-1" },
-                  React.createElement('option', { value: "system" }, "System Voice (browser)"),
-                  React.createElement('option', { value: "elevenlabs" }, "ElevenLabs"),
-                  React.createElement('option', { value: "google" }, "Google Cloud")
-                )
-              ),
-              React.createElement('div', { className: "border-t border-gray-600 my-2" }),
-              React.createElement('div', { className: "mb-2" },
-                React.createElement('div', { className: "text-teal-300 text-xs mb-1" }, "ElevenLabs"),
-                React.createElement('input', { type: "password", id: "elevenlabsApiKey", placeholder: "API Key", className: "w-full text-xs bg-gray-700 rounded p-1 mb-1" }),
-                React.createElement('div', { className: "flex gap-1" },
-                  React.createElement('select', { id: "elevenlabsVoiceSelect", className: "flex-1 text-xs bg-gray-700 rounded p-1" },
-                    React.createElement('option', { value: "" }, "-- Select voice --")
-                  ),
-                  React.createElement('button', { id: "refreshElevenVoices", className: "text-xs bg-teal-700 px-2 py-1 rounded" }, "Refresh")
-                )
-              ),
-              React.createElement('div', { className: "mb-2" },
-                React.createElement('div', { className: "text-teal-300 text-xs mb-1" }, "Google Cloud"),
-                React.createElement('input', { type: "password", id: "googleApiKey", placeholder: "API Key", className: "w-full text-xs bg-gray-700 rounded p-1 mb-1" }),
-                React.createElement('div', { className: "flex gap-1" },
-                  React.createElement('select', { id: "googleVoiceSelect", className: "flex-1 text-xs bg-gray-700 rounded p-1" },
-                    React.createElement('option', { value: "" }, "-- Select voice --")
-                  ),
-                  React.createElement('button', { id: "refreshGoogleVoices", className: "text-xs bg-teal-700 px-2 py-1 rounded" }, "Refresh")
-                )
-              ),
-              React.createElement('button', { id: "saveSettingsBtn", className: "text-xs bg-green-700 px-3 py-1 rounded mt-2" }, "Save Settings"),
-              React.createElement('p', { className: "text-xs text-gray-400 mt-2" }, "API keys are stored in your browser. If an external provider fails, the fallback (if configured) will be used, otherwise system voice.")
-            ),
-            React.createElement('div', { className: "bg-gray-900/70 rounded-xl p-4 h-64 overflow-y-auto border border-gray-700" },
-              React.createElement('h3', { className: "font-bold text-teal-300 mb-2" }, "🎙️ LIVE COMMENTARY"),
-              commentaryLog.length === 0 && React.createElement('p', { className: "text-gray-500 text-sm italic" }, "No commentary yet."),
-              React.createElement('div', { className: "space-y-2" }, commentaryLog.map(function(c) {
-                return React.createElement('div', { key: c.id, className: "p-2 rounded-md text-sm " + (c.isWicket ? "bg-red-900/30 border-l-4 border-red-500" : "bg-gray-800/50") + (c.isSummary ? " border-l-4 border-teal-500" : "") },
-                  React.createElement('span', { className: "text-gray-400 text-[11px] mr-2" }, c.timestamp),
-                  React.createElement('span', { className: "commentary-text text-gray-200" }, c.text)
-                );
-              }))
-            ),
-            React.createElement(StatsPanel, { battingStats: cumulativeStats.battingStats, bowlingStats: cumulativeStats.bowlingStats, title: "Current Innings: " + currentInnings.team }),
-            firstInningsStats && React.createElement(StatsPanel, { battingStats: firstInningsStats.battingStats, bowlingStats: firstInningsStats.bowlingStats, title: "First Innings: " + firstInningsStats.team })
-          ),
-          React.createElement('div', { className: "bg-gray-800/40 rounded-2xl p-4 backdrop-blur-sm" },
-            React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "📹 VIDEO COMMENTARY (Broadcast)"),
-            React.createElement('canvas', { ref: canvasRef, width: 600, height: 400, className: "w-full h-auto rounded-xl border border-teal-500/40", style: { aspectRatio: '600/400' } }),
-            React.createElement('div', { className: "flex flex-wrap gap-2 mt-4" },
-              !isRecording ? React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "🔴 Start Recording (with audio)")
-                : React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-sm px-3 py-1.5 rounded-full" }, "⏹️ Stop & Save"),
-              React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-sm px-3 py-1.5 rounded-full" }, "📥 Download Video")
-            ),
-            videoBlobUrl && React.createElement('div', { className: "mt-3 text-xs text-center text-green-300 bg-gray-900/60 p-2 rounded-lg" }, "✅ Video ready! Download and upload to YouTube (WebM format). Audio is captured if you used an external TTS provider."),
-            React.createElement('p', { className: "text-[11px] text-gray-400 mt-3 text-center" }, "Recording captures the live canvas and audio from external TTS (ElevenLabs/Google) and stadium ambience. System voice (browser) is not captured.")
+          React.createElement('div', { className: "flex gap-2" },
+            React.createElement('button', { onClick: toggleMute, className: `px-2 py-1 rounded text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}` }, muteAudio ? "🔇 Audio Off" : "🔊 Audio On"),
+            React.createElement('button', { onClick: toggleAmbience, className: `px-2 py-1 rounded text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}` }, ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off")
           )
         ),
-        (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "bg-blue-800/50 p-3 rounded-xl text-center text-sm" }, "🏏 First innings finished! Click START to begin the chase. 🏏"),
-        (isMatchFinished) && React.createElement('div', { className: "bg-gradient-to-r from-amber-800 to-orange-800 p-4 rounded-xl text-center result-banner" }, "🏆 MATCH RESULT 🏆<br/>", matchResult ? matchResult.split('.')[0] : "Match finished! " + matchState.totalRuns + "/" + matchState.wickets + " • Target: " + target)
+        // Two‑column layout
+        React.createElement('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
+          // Left column (Settings)
+          React.createElement('div', { className: "space-y-6" },
+            // Match Selection
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Match Selection"),
+              React.createElement('label', { className: "flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-teal-500/50 rounded-xl cursor-pointer bg-gray-900/40 hover:bg-gray-800/60" },
+                React.createElement('div', { className: "flex flex-col items-center justify-center pt-5 pb-6" },
+                  React.createElement('svg', { className: "w-8 h-8 mb-2 text-teal-400", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" },
+                    React.createElement('path', { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "2", d: "M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" })
+                  ),
+                  React.createElement('p', { className: "text-sm text-gray-300" }, React.createElement('span', { className: "font-semibold" }, "Click to upload"), " Cricsheet JSON"),
+                  React.createElement('p', { className: "text-xs text-gray-400" }, "Full match (both innings)")
+                ),
+                React.createElement('input', { type: "file", accept: ".json", className: "hidden", onChange: handleFileUpload })
+              ),
+              error && React.createElement('div', { className: "mt-2 text-red-400 text-xs" }, error)
+            ),
+            // Stream Settings
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Stream Settings"),
+              React.createElement('div', { className: "space-y-2 text-sm" },
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "YouTube Stream Key"),
+                  React.createElement('input', { type: "text", placeholder: "ABCD-1234-WXYZ-5678", className: "w-full bg-gray-700 rounded p-1 text-xs" })
+                ),
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "RTMP Server"),
+                  React.createElement('input', { type: "text", placeholder: "rtmp://a.rtmp.youtube.com/live2", className: "w-full bg-gray-700 rounded p-1 text-xs" })
+                ),
+                React.createElement('button', { className: "bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2" }, "Connect"),
+                React.createElement('hr', { className: "border-gray-600 my-2" }),
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "Sportmonks API Key"),
+                  React.createElement('input', { type: "text", placeholder: "Enter your Sportmonks API key", className: "w-full bg-gray-700 rounded p-1 text-xs" })
+                ),
+                React.createElement('div', { className: "flex gap-2 mt-2" },
+                  React.createElement('input', { type: "text", placeholder: "Match ID", className: "flex-1 bg-gray-700 rounded p-1 text-xs" }),
+                  React.createElement('button', { className: "bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded" }, "Load")
+                ),
+                React.createElement('div', { className: "flex gap-2 mt-2" },
+                  React.createElement('div', null,
+                    React.createElement('label', { className: "block text-gray-400 text-xs" }, "Poll Interval (sec)"),
+                    React.createElement('input', { type: "number", defaultValue: "10", className: "w-20 bg-gray-700 rounded p-1 text-xs" })
+                  ),
+                  React.createElement('div', null,
+                    React.createElement('label', { className: "block text-gray-400 text-xs" }, "Max Balls Fetch"),
+                    React.createElement('input', { type: "number", defaultValue: "6", className: "w-20 bg-gray-700 rounded p-1 text-xs" })
+                  )
+                ),
+                React.createElement('button', { className: "bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2" }, "Save API Settings")
+              )
+            ),
+            // Broadcast Control
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Broadcast Control"),
+              React.createElement('div', { className: "flex flex-wrap gap-2" },
+                !isPlaying ? React.createElement('button', { onClick: startMatch, disabled: startDisabled, className: "bg-green-700 hover:bg-green-600 disabled:opacity-50 px-4 py-2 rounded-full text-sm font-semibold" }, "▶ START BROADCAST")
+                  : React.createElement('button', { onClick: pauseMatch, className: "bg-yellow-700 hover:bg-yellow-600 px-4 py-2 rounded-full text-sm font-semibold" }, "⏸ PAUSE"),
+                React.createElement('button', { onClick: manualNextBall, disabled: isMatchFinished || currentBallIdx+1 >= totalDeliveries, className: "bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-3 py-2 rounded-full text-xs" }, "⏩ Next Ball"),
+                React.createElement('button', { onClick: resetSimulation, className: "bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-full text-xs" }, "🔄 Reset"),
+                React.createElement('div', { className: "flex items-center gap-1 ml-auto" },
+                  React.createElement('span', { className: "text-xs" }, "Speed:"),
+                  [1,2,4].map(function(sp) { return React.createElement('button', { key: sp, onClick: function() { setSpeed(sp); }, className: `px-2 py-1 rounded text-xs ${speed === sp ? "bg-teal-600" : "bg-gray-700"}` }, sp + "x"); })
+                )
+              ),
+              React.createElement('div', { className: "mt-3 flex gap-2" },
+                React.createElement('button', { onClick: startRecording, disabled: isPlaying === false && currentBallIdx === -1, className: "bg-red-700 hover:bg-red-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full" }, "🔴 Start Recording (with audio)"),
+                React.createElement('button', { onClick: stopRecording, className: "bg-gray-600 hover:bg-gray-500 text-xs px-3 py-1 rounded-full" }, "⏹️ Stop & Save"),
+                React.createElement('button', { onClick: downloadVideo, disabled: !videoBlobUrl, className: "bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full" }, "📥 Download Video")
+              ),
+              videoBlobUrl && React.createElement('div', { className: "mt-2 text-xs text-green-300" }, "✅ Video ready (includes audio if external TTS was used)")
+            ),
+            // TTS Settings (collapsible)
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('button', { id: "showSettingsBtn", className: "w-full text-left text-teal-300 font-semibold flex justify-between items-center" },
+                React.createElement('span', null, "TTS Provider Settings"),
+                React.createElement('span', null, "▼")
+              ),
+              React.createElement('div', { id: "settingsPanel", style: { display: 'none' }, className: "mt-3 space-y-3 text-sm" },
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "Primary Provider"),
+                  React.createElement('select', { id: "primaryProvider", className: "w-full bg-gray-700 rounded p-1" },
+                    React.createElement('option', { value: "system" }, "System Voice (browser)"),
+                    React.createElement('option', { value: "elevenlabs" }, "ElevenLabs"),
+                    React.createElement('option', { value: "google" }, "Google Cloud")
+                  )
+                ),
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "ElevenLabs API Key"),
+                  React.createElement('input', { type: "password", id: "elevenlabsApiKey", className: "w-full bg-gray-700 rounded p-1 mb-1", placeholder: "sk_..." }),
+                  React.createElement('div', { className: "flex gap-1" },
+                    React.createElement('select', { id: "elevenlabsVoiceSelect", className: "flex-1 bg-gray-700 rounded p-1" }),
+                    React.createElement('button', { id: "refreshElevenVoices", className: "bg-teal-700 px-2 py-1 rounded text-xs" }, "Refresh")
+                  )
+                ),
+                React.createElement('div', null,
+                  React.createElement('label', { className: "block text-gray-400 mb-1" }, "Google Cloud API Key"),
+                  React.createElement('input', { type: "password", id: "googleApiKey", className: "w-full bg-gray-700 rounded p-1 mb-1", placeholder: "AIza..." }),
+                  React.createElement('div', { className: "flex gap-1" },
+                    React.createElement('select', { id: "googleVoiceSelect", className: "flex-1 bg-gray-700 rounded p-1" }),
+                    React.createElement('button', { id: "refreshGoogleVoices", className: "bg-teal-700 px-2 py-1 rounded text-xs" }, "Refresh")
+                  )
+                ),
+                React.createElement('button', { id: "saveSettingsBtn", className: "bg-green-700 text-xs px-3 py-1 rounded mt-1" }, "Save Settings"),
+                React.createElement('p', { className: "text-xs text-gray-400 mt-1" }, "Keys stored in your browser. External TTS will be captured in video.")
+              )
+            )
+          ),
+          // Right column (Live Overlay + Social Reactions)
+          React.createElement('div', { className: "lg:col-span-2 space-y-6" },
+            // Live Overlay (current match status)
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Live Overlay"),
+              React.createElement('div', { className: "flex justify-between items-center flex-wrap gap-2" },
+                React.createElement('div', null,
+                  React.createElement('div', { className: "text-3xl font-mono font-bold text-teal-300" }, matchState.totalRuns, "/", matchState.wickets),
+                  React.createElement('div', { className: "text-gray-400 text-sm" }, matchState.overs, " overs")
+                ),
+                React.createElement('div', { className: "text-right" },
+                  React.createElement('div', { className: "text-gray-400 text-xs" }, currentInningsIdx === 0 ? "1st Innings" : "Target: " + target),
+                  currentDelivery && React.createElement('div', { className: "text-sm font-mono" }, getLastName(currentDelivery.striker), " ", currentDelivery.runs, "*")
+                )
+              ),
+              React.createElement('div', { className: "mt-3 grid grid-cols-2 gap-2 text-sm" },
+                React.createElement('div', null,
+                  React.createElement('span', { className: "text-gray-400" }, "Striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery ? getLastName(currentDelivery.striker) : "-"),
+                  React.createElement('br', null),
+                  React.createElement('span', { className: "text-gray-400" }, "Bowler:"), " ", React.createElement('span', { className: "font-bold text-emerald-300" }, currentDelivery ? getLastName(currentDelivery.bowler) : "-")
+                ),
+                React.createElement('div', null,
+                  React.createElement('span', { className: "text-gray-400" }, "Non-striker:"), " ", React.createElement('span', { className: "font-bold text-yellow-200" }, currentDelivery ? getLastName(currentDelivery.nonStriker) : "-"),
+                  React.createElement('br', null),
+                  React.createElement('span', { className: "text-gray-400" }, "Last Ball:"), " ", React.createElement('span', { className: "font-mono" }, currentDelivery ? currentDelivery.runs + " runs" + (currentDelivery.wicket ? " ❌" : "") : "-")
+                )
+              ),
+              React.createElement('div', { className: "mt-3 w-full bg-gray-700 h-1 rounded-full" },
+                React.createElement('div', { className: "bg-teal-400 h-1 rounded-full transition-all", style: { width: progressPercent + "%" } })
+              ),
+              firstInningsStats && React.createElement('div', { className: "mt-2 text-xs text-gray-400" }, "1st innings: ", firstInningsStats.total, "/", firstInningsStats.wickets, " (", firstInningsStats.team, ")")
+            ),
+            // Social Reactions / Commentary Feed
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Social Reactions"),
+              React.createElement('div', { className: "h-48 overflow-y-auto space-y-2 text-sm" },
+                commentaryLog.length === 0 && React.createElement('p', { className: "text-gray-500 italic text-xs" }, "No reactions yet."),
+                commentaryLog.map(function(c) {
+                  return React.createElement('div', { key: c.id, className: "p-2 rounded bg-gray-700/50 border-l-2 " + (c.isWicket ? "border-red-500" : "border-teal-500") },
+                    React.createElement('div', { className: "flex items-center gap-2" },
+                      React.createElement('span', { className: "text-gray-400 text-[10px]" }, c.timestamp),
+                      React.createElement('span', { className: "font-bold text-xs text-teal-300" }, "@fan"),
+                      React.createElement('span', { className: "text-gray-300 text-xs" }, "says:")
+                    ),
+                    React.createElement('p', { className: "text-gray-200 text-xs mt-1" }, c.text)
+                  );
+                })
+              )
+            ),
+            // Broadcast Preview (Canvas)
+            React.createElement('div', { className: "bg-gray-800/50 rounded-2xl p-5 border border-gray-700" },
+              React.createElement('h3', { className: "text-lg font-semibold text-teal-300 mb-3" }, "Broadcast Preview"),
+              React.createElement('canvas', { ref: canvasRef, width: 600, height: 400, className: "w-full rounded-xl border border-teal-500/40", style: { aspectRatio: '600/400' } })
+            )
+          )
+        ),
+        // Status messages
+        (currentInningsIdx === 0 && isInningsFinished) && React.createElement('div', { className: "mt-4 bg-blue-800/50 p-2 rounded-xl text-center text-sm" }, "🏏 First innings finished! Click START to begin the chase."),
+        (isMatchFinished) && React.createElement('div', { className: "mt-4 bg-gradient-to-r from-amber-800 to-orange-800 p-3 rounded-xl text-center result-banner" }, "🏆 MATCH RESULT 🏆 ", matchResult ? matchResult.split('.')[0] : `Finished: ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`)
       );
     };
 
