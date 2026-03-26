@@ -836,7 +836,10 @@
         setLoadingRecent(true);
         setError(null);
         try {
-          const response = await fetch('https://cricsheet.org/downloads/recently_added_7_male_json.zip');
+          // Use a CORS proxy to fetch the ZIP
+          const proxyUrl = 'https://corsproxy.io/?';
+          const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
+          const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const blob = await response.blob();
           const zip = await JSZip.loadAsync(blob);
@@ -846,7 +849,6 @@
               const content = await zip.files[fileName].async('string');
               try {
                 const json = JSON.parse(content);
-                // Safe access without optional chaining
                 const teams = (json.info && json.info.teams) ? json.info.teams.join(' vs ') : 'Unknown match';
                 const date = (json.info && json.info.dates && json.info.dates[0]) ? json.info.dates[0] : 'Unknown date';
                 const displayName = teams + ' – ' + date;
@@ -858,7 +860,8 @@
           }
           setRecentMatches(matches);
         } catch (err) {
-          setError('Failed to load recent matches: ' + err.message);
+          console.error(err);
+          setError('Failed to load recent matches: ' + err.message + '. Please try again later or use the manual upload.');
         } finally {
           setLoadingRecent(false);
         }
