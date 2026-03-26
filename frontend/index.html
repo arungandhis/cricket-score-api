@@ -846,9 +846,10 @@
               const content = await zip.files[fileName].async('string');
               try {
                 const json = JSON.parse(content);
-                const teams = json.info?.teams ? json.info.teams.join(' vs ') : 'Unknown match';
-                const date = json.info?.dates?.[0] || 'Unknown date';
-                const displayName = `${teams} – ${date}`;
+                // Safe access without optional chaining
+                const teams = (json.info && json.info.teams) ? json.info.teams.join(' vs ') : 'Unknown match';
+                const date = (json.info && json.info.dates && json.info.dates[0]) ? json.info.dates[0] : 'Unknown date';
+                const displayName = teams + ' – ' + date;
                 matches.push({ fileName, displayName, json });
               } catch(e) {
                 console.warn('Could not parse', fileName, e);
