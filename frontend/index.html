@@ -835,16 +835,63 @@
         reader.readAsText(file);
       };
 
+      // Function to load from Cricsheet URL (daily JSON)
+      var loadFromCricsheet = function(date) {
+        var url = `https://cricsheet.org/downloads/${date}.json`;
+        fetch(url)
+          .then(response => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+          })
+          .then(json => {
+            var parsed = parseCricsheetJSON(json);
+            setMatchData(parsed);
+            setError(null);
+            setFileName(`${date}.json`);
+          })
+          .catch(err => {
+            setError(`Failed to load match from ${date}: ${err.message}`);
+            setMatchData(null);
+          });
+      };
+
       var resetToUpload = function() {
         setMatchData(null);
         setError(null);
         setFileName("");
       };
 
+      // Generate last 7 days for dropdown
+      var getRecentDates = function() {
+        var dates = [];
+        for (var i = 1; i <= 7; i++) {
+          var d = new Date();
+          d.setDate(d.getDate() - i);
+          var year = d.getFullYear();
+          var month = String(d.getMonth() + 1).padStart(2, '0');
+          var day = String(d.getDate()).padStart(2, '0');
+          dates.push(`${year}-${month}-${day}`);
+        }
+        return dates;
+      };
+      var recentDates = getRecentDates();
+
       if (!matchData) {
-        // Show upload screen (same as before)
+        // Show upload screen with recent matches dropdown
         return React.createElement('div', { className: "max-w-2xl mx-auto bg-gray-800/60 backdrop-blur-sm rounded-2xl p-8 border border-gray-700" },
           React.createElement('div', { className: "flex flex-col items-center justify-center gap-6" },
+            React.createElement('div', { className: "w-full mb-4" },
+              React.createElement('label', { className: "block text-sm font-medium text-gray-300 mb-2" }, "Recent Men's Matches (last 7 days)"),
+              React.createElement('select', {
+                className: "w-full bg-gray-700 rounded-lg p-2 text-sm",
+                onChange: (e) => { if (e.target.value) loadFromCricsheet(e.target.value); }
+              },
+                React.createElement('option', { value: "" }, "-- Select a date --"),
+                recentDates.map(date => React.createElement('option', { key: date, value: date }, date))
+              ),
+              React.createElement('p', { className: "text-xs text-gray-400 mt-1" }, "Uses daily JSON from Cricsheet.org (if available)")
+            ),
+            React.createElement('div', { className: "text-gray-400 text-sm" }, "OR"),
             React.createElement('label', { className: "flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-teal-500/50 rounded-xl cursor-pointer bg-gray-900/40 hover:bg-gray-800/60" },
               React.createElement('div', { className: "flex flex-col items-center justify-center pt-5 pb-6" },
                 React.createElement('svg', { className: "w-10 h-10 mb-3 text-teal-400", fill: "none", stroke: "currentColor", viewBox: "0 0 24 24" },
@@ -861,7 +908,7 @@
       } else {
         // Show the admin panel, passing the file upload handler and reset
         return React.createElement(MatchSimulator, {
-          key: fileName, // force new component when file changes
+          key: fileName,
           matchData: matchData,
           onReset: resetToUpload,
           onFileUpload: handleFileUpload,
@@ -1587,7 +1634,7 @@
       return React.createElement('div', { className: "max-w-7xl mx-auto px-4 py-6" },
         // Header with file upload button
         React.createElement('div', { className: "flex flex-wrap justify-between items-center mb-6 pb-4 border-b border-gray-700 gap-3" },
-          React.createElement('div', { className: "flex items-center gap-3" },
+          React.createElement('div', { className: "flex items-center gap-3 flex-wrap" },
             React.createElement('h1', { className: "text-3xl font-bold bg-gradient-to-r from-teal-300 to-emerald-400 bg-clip-text text-transparent" }, "Cricket Broadcast Pro"),
             React.createElement('label', { className: "cursor-pointer bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1.5 rounded-full transition" },
               React.createElement('span', null, "📁 Upload New JSON"),
