@@ -836,8 +836,8 @@
         setLoadingRecent(true);
         setError(null);
         try {
-          // Use a CORS proxy to fetch the ZIP
-          const proxyUrl = 'https://corsproxy.io/?';
+          // Use a more reliable CORS proxy that returns raw content
+          const proxyUrl = 'https://api.allorigins.win/raw?url=';
           const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
           const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
