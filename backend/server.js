@@ -96,6 +96,28 @@ async function googleTtsGenerate(text, style, apiKey, voiceId) {
   return stream;
 }
 
+// ---------- New endpoint: fetch recent matches ZIP ----------
+app.get('/api/recent-matches', async (req, res) => {
+  try {
+    const zipUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
+    console.log('Fetching recent matches ZIP from:', zipUrl);
+    const response = await axios({
+      method: 'get',
+      url: zipUrl,
+      responseType: 'stream'
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Access-Control-Allow-Origin', '*'); // CORS already handled, but safe
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Error fetching recent matches:', error.message);
+    if (error.response) {
+      console.error('Status:', error.response.status);
+    }
+    res.status(500).json({ error: 'Failed to fetch recent matches' });
+  }
+});
+
 // ---------- Voice List Endpoints ----------
 app.post('/voices', async (req, res) => {
   const { provider, apiKey } = req.body;
