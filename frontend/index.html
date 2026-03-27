@@ -750,6 +750,33 @@
     }
 
     // --------------------------------------------------------------
+    // Stadium background image loading
+    // --------------------------------------------------------------
+    let stadiumImage = null;
+    let stadiumImageLoaded = false;
+
+    function loadStadiumBackground() {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        // Use a free, high‑res cricket stadium image (Pexels)
+        // This image is from Pexels and allows hotlinking with proper attribution.
+        // If it fails, we fallback to a gradient.
+        img.src = 'https://images.pexels.com/photos/163452/cricket-stadium-sport-field-163452.jpeg?auto=compress&cs=tinysrgb&w=1200';
+        img.onload = () => {
+          stadiumImage = img;
+          stadiumImageLoaded = true;
+          resolve(true);
+        };
+        img.onerror = () => {
+          console.warn('Could not load stadium background, using fallback.');
+          stadiumImageLoaded = false;
+          resolve(false);
+        };
+      });
+    }
+
+    // --------------------------------------------------------------
     // React components
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
@@ -993,6 +1020,7 @@
       var [firstInningsStats, setFirstInningsStats] = React.useState(null);
       var [matchResult, setMatchResult] = React.useState(null);
       var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
+      var [backgroundReady, setBackgroundReady] = React.useState(false);
 
       var startGuardRef = React.useRef(false);
       var introPlayedRef = React.useRef(false);
@@ -1035,6 +1063,11 @@
       // Load system voices
       React.useEffect(function() {
         loadSystemVoices();
+      }, []);
+
+      // Load stadium background
+      React.useEffect(() => {
+        loadStadiumBackground().then(() => setBackgroundReady(true));
       }, []);
 
       // Load audio and set up UI
@@ -1472,21 +1505,30 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Draw canvas with animations and player images
+      // Draw canvas with stadium background and broadcast overlay
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
         var w = canvas.width, h = canvas.height;
 
-        var grad = ctx.createLinearGradient(0, 0, 0, h);
-        grad.addColorStop(0, '#0b2b26');
-        grad.addColorStop(1, '#051a17');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
+        // 1. Draw stadium background (if loaded, else fallback gradient)
+        if (stadiumImageLoaded && stadiumImage) {
+          ctx.drawImage(stadiumImage, 0, 0, w, h);
+          // Darken the background for better contrast with pitch elements
+          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillRect(0, 0, w, h);
+        } else {
+          var grad = ctx.createLinearGradient(0, 0, 0, h);
+          grad.addColorStop(0, '#0b2b26');
+          grad.addColorStop(1, '#051a17');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, w, h);
+        }
 
+        // 2. Draw the pitch area (semi-transparent to let background show through)
         var pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
-        ctx.fillStyle = '#2c5e2e';
+        ctx.fillStyle = 'rgba(44,94,46,0.7)';
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
         ctx.beginPath();
         ctx.strokeStyle = '#fff5e0';
@@ -1501,6 +1543,7 @@
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
 
+        // 3. Draw players (avatars)
         // Batsman (striker)
         var batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
         var strikerName = currentDelivery ? currentDelivery.striker : null;
@@ -1594,7 +1637,7 @@
           ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 15, nonStrikerY + 28);
         }
 
-        // Fielders remain as moving dots
+        // Fielders as moving dots
         var fielders = [
           { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
         ];
@@ -1608,54 +1651,62 @@
           ctx.fill();
         });
 
-        // Text overlays
-        ctx.font = 'bold 24px "Inter", sans-serif';
-        ctx.fillStyle = '#f0fdf4';
-        ctx.fillText(matchInfo.teams, 30, 55);
-        ctx.font = '12px monospace';
-        ctx.fillStyle = '#a3e9d6';
-        ctx.fillText(matchInfo.venue + " • " + matchInfo.date, 30, 85);
-        ctx.font = '10px monospace';
+        // 4. Broadcast-style score overlay
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, w, 70);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 28px "Inter", sans-serif';
+        ctx.fillText(matchInfo.team1, 20, 45);
+        ctx.fillText(matchInfo.team2, w - 20 - ctx.measureText(matchInfo.team2).width, 45);
+        
+        // Score box
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(20, 70, 180, 50);
         ctx.fillStyle = '#facc15';
-        ctx.fillText("Toss: " + matchInfo.toss, 30, 110);
-        ctx.fillStyle = '#000000aa';
-        ctx.fillRect(30, 125, w-60, 80);
         ctx.font = 'bold 32px monospace';
-        ctx.fillStyle = '#facc15';
-        var scoreText = currentInningsIdx === 0 ? matchState.totalRuns + "/" + matchState.wickets + " (" + matchState.overs + ")" : matchState.totalRuns + "/" + matchState.wickets + " (" + matchState.overs + ") • Target: " + target;
-        ctx.fillText(scoreText, 50, 180);
-        if (firstInningsStats) {
-          ctx.font = '14px monospace';
-          ctx.fillStyle = '#cbd5e1';
-          ctx.fillText("1st innings: " + firstInningsStats.total + "/" + firstInningsStats.wickets + " (" + firstInningsStats.team + ")", 50, 215);
-        }
-        if (currentDelivery) {
-          ctx.font = 'bold 16px "Inter"';
-          ctx.fillStyle = '#d9f99d';
-          ctx.fillText("🏏 STRIKER: " + getLastName(currentDelivery.striker), 50, 250);
-          ctx.fillStyle = '#c4f0e6';
-          ctx.fillText("🔄 NON-STRIKER: " + getLastName(currentDelivery.nonStriker), 50, 280);
-          ctx.fillStyle = '#fde047';
-          ctx.fillText("⚡ BOWLER: " + getLastName(currentDelivery.bowler), 50, 310);
-        } else {
-          ctx.fillStyle = '#aaa';
-          ctx.fillText("⚡ Awaiting start...", 50, 250);
-        }
-        var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
-        ctx.fillStyle = '#1e2a2acc';
-        ctx.fillRect(30, h-130, w-60, 90);
-        ctx.font = 'italic 14px "JetBrains Mono"';
-        ctx.fillStyle = '#e2e8f0';
-        ctx.fillText("🎙️ LATEST BALL:", 40, h-100);
-        ctx.font = '12px "JetBrains Mono"';
-        ctx.fillStyle = '#f1f5f9';
-        var wrapped = lastComment.length > 70 ? lastComment.slice(0,70)+"..." : lastComment;
-        ctx.fillText(wrapped, 40, h-70);
-        ctx.font = '9px monospace';
-        ctx.fillStyle = '#4b5563';
-        ctx.fillText("CRIC·LIVE STUDIO | VIDEO COMMENTARY", w-200, h-15);
+        var scoreText = matchState.totalRuns + '/' + matchState.wickets;
+        ctx.fillText(scoreText, 30, 110);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '16px monospace';
+        ctx.fillText('(' + matchState.overs + ')', 30 + ctx.measureText(scoreText).width + 10, 105);
 
-        // Effect animations
+        // Target box (if second innings)
+        if (currentInningsIdx === 1) {
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          ctx.fillRect(w - 150, 70, 130, 50);
+          ctx.fillStyle = '#ffaa66';
+          ctx.font = 'bold 24px monospace';
+          ctx.fillText('TARGET', w - 140, 95);
+          ctx.fillStyle = '#facc15';
+          ctx.font = 'bold 32px monospace';
+          ctx.fillText(target.toString(), w - 140 + ctx.measureText('TARGET').width + 15, 110);
+        }
+
+        // Additional info
+        ctx.fillStyle = '#ddd';
+        ctx.font = '12px monospace';
+        ctx.fillText(matchInfo.venue + " • " + matchInfo.date, 20, 140);
+        ctx.fillText("Toss: " + matchInfo.toss, 20, 160);
+        
+        // Current players
+        if (currentDelivery) {
+          ctx.fillStyle = '#f0f0f0';
+          ctx.font = 'bold 14px "Inter"';
+          ctx.fillText("Striker: " + getLastName(currentDelivery.striker), 20, 195);
+          ctx.fillText("Bowler: " + getLastName(currentDelivery.bowler), 20, 215);
+          ctx.fillText("Non-striker: " + getLastName(currentDelivery.nonStriker), 20, 235);
+        }
+
+        // Commentary ticker at bottom
+        var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, h-45, w, 45);
+        ctx.font = 'italic 12px "JetBrains Mono"';
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText("🎙️ " + lastComment.slice(0, 100), 10, h-20);
+
+        // Effect animation (SIX, FOUR, WICKET)
         if (effect) {
           var elapsed = (Date.now() - effect.startTime) / 1000;
           var alpha = Math.max(0, 1 - elapsed);
@@ -1692,9 +1743,9 @@
           }
           ctx.restore();
         }
-      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache]);
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, backgroundReady]);
 
-      React.useEffect(function() { drawCanvas(); }, [drawCanvas, playerImagesLoaded]);
+      React.useEffect(function() { drawCanvas(); }, [drawCanvas, backgroundReady]);
 
       // Combined audio+video recording
       var startRecording = function() {
