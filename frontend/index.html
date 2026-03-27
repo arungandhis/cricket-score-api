@@ -924,11 +924,21 @@
         setLoadingRecent(true);
         setError(null);
         try {
-          const proxyUrl = 'https://api.cors.lol/?url=';
+          // Use allorigins.win/get to get base64 encoded ZIP data (avoids CORS and binary corruption)
+          const proxyUrl = 'https://api.allorigins.win/get?url=';
           const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
           const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
           if (!response.ok) throw new Error(`HTTP ${response.status} – ${response.statusText}`);
-          const blob = await response.blob();
+          const json = await response.json();
+          if (!json.contents) throw new Error('No contents in response');
+          // Decode base64 to binary
+          const base64 = json.contents;
+          const binaryString = atob(base64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'application/zip' });
           const zip = await JSZip.loadAsync(blob);
           const matches = [];
           for (let fileName in zip.files) {
