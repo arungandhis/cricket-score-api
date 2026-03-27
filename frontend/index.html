@@ -575,7 +575,9 @@
         date: (json.info.dates && json.info.dates[0]) || "Unknown Date",
         winner: (json.info.outcome && json.info.outcome.winner) || "N/A",
         toss: json.info.toss ? json.info.toss.winner + " won the toss and chose to " + json.info.toss.decision : "No toss info",
-        maxOvers: json.info.overs || 20
+        maxOvers: json.info.overs || 20,
+        tournament: json.info.event?.name || json.info.competition?.name || "N/A",
+        umpires: json.info.officials?.umpires ? json.info.officials.umpires.join(', ') : "N/A"
       };
       var inningsData = [];
       for (var innIdx = 0; innIdx < json.innings.length; innIdx++) {
@@ -1835,6 +1837,37 @@
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left column */}
             <div className="space-y-6">
+              {/* Match Information (new) */}
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Match Information</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between border-b border-gray-700 pb-1">
+                    <span className="text-gray-400">Match:</span>
+                    <span className="font-semibold text-white">{matchInfo.teams}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1">
+                    <span className="text-gray-400">Date:</span>
+                    <span>{matchInfo.date}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1">
+                    <span className="text-gray-400">Venue:</span>
+                    <span>{matchInfo.venue}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1">
+                    <span className="text-gray-400">Toss:</span>
+                    <span>{matchInfo.toss}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1">
+                    <span className="text-gray-400">Tournament:</span>
+                    <span>{matchInfo.tournament}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Umpires:</span>
+                    <span>{matchInfo.umpires}</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Broadcast Control */}
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <h3 className="text-lg font-semibold text-teal-300 mb-3">Broadcast Control</h3>
