@@ -23,7 +23,6 @@
     #root { min-height: 100vh; }
     .loading { padding: 20px; text-align: center; color: #9ca3af; }
   </style>
-  <!-- Polyfills for async/await on older browsers -->
   <script src="https://unpkg.com/regenerator-runtime@0.13.11/runtime.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
@@ -31,7 +30,6 @@
   <div id="root">Loading application...</div>
   <div id="error-message" style="display: none;"></div>
 
-  <!-- Global error handler to catch any script errors -->
   <script>
     window.addEventListener('error', function(event) {
       var errDiv = document.getElementById('error-message');
@@ -123,7 +121,7 @@
     // --------------------------------------------------------------
     // Backend URL (must be your multi‑provider backend)
     // --------------------------------------------------------------
-    const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com'; // Update if needed
+    const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com';
 
     // --------------------------------------------------------------
     // TTS audio queue (for backend audio) with recording support
@@ -583,7 +581,6 @@
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
         throw new Error("Invalid Cricsheet format: need two innings");
       }
-      // Safe property access (no optional chaining)
       var tournament = "N/A";
       if (json.info.event && json.info.event.name) tournament = json.info.event.name;
       else if (json.info.competition && json.info.competition.name) tournament = json.info.competition.name;
@@ -894,6 +891,9 @@
       );
     };
 
+    // --------------------------------------------------------------
+    // App component (with updated loadRecentMatches)
+    // --------------------------------------------------------------
     var App = function() {
       var [matchData, setMatchData] = React.useState(null);
       var [error, setError] = React.useState(null);
@@ -920,7 +920,6 @@
         reader.readAsText(file);
       };
 
-      // NEW: Load recent matches via your own backend endpoint
       var loadRecentMatches = async function() {
         setLoadingRecent(true);
         setError(null);
@@ -1023,23 +1022,908 @@
       }
     };
 
-    // The MatchSimulator component remains exactly as in the previous version
-    // (it is too long to duplicate here, but it is unchanged)
-    // For brevity, I'm omitting the full MatchSimulator code, but it is identical to the last working version.
-    // In practice, you would copy the entire MatchSimulator from the previous answer.
-    // Since the question only asked to update the index.html based on the new backend endpoint,
-    // I've provided the key change. However, for completeness, I'll include the full MatchSimulator below.
-
-    // ---------- Begin MatchSimulator (unchanged) ----------
+    // --------------------------------------------------------------
+    // MatchSimulator component (full version from previous working state)
+    // --------------------------------------------------------------
     var MatchSimulator = function(props) {
-      // ... (full content as in previous working version)
-      // I will keep it the same as the last provided full HTML to avoid repetition.
-      // The critical part is the loadRecentMatches function above.
+      var inningsData = props.matchData.inningsData;
+      var matchInfo = props.matchData.matchInfo;
+      var initialTarget = props.matchData.target;
+      var onFileUpload = props.onFileUpload;
+      var uploadError = props.uploadError;
+
+      var maxOvers = matchInfo.maxOvers;
+      var [currentInningsIdx, setCurrentInningsIdx] = React.useState(0);
+      var [currentBallIdx, setCurrentBallIdx] = React.useState(-1);
+      var [isPlaying, setIsPlaying] = React.useState(false);
+      var [speed, setSpeed] = React.useState(1);
+      var [muteAudio, setMuteAudio] = React.useState(false);
+      var [commentaryLog, setCommentaryLog] = React.useState([]);
+      var [internalSpeaking, setInternalSpeaking] = React.useState(false);
+      var [target, setTarget] = React.useState(initialTarget);
+      var [firstInningsStats, setFirstInningsStats] = React.useState(null);
+      var [matchResult, setMatchResult] = React.useState(null);
+      var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
+      var [backgroundReady, setBackgroundReady] = React.useState(false);
+
+      var startGuardRef = React.useRef(false);
+      var introPlayedRef = React.useRef(false);
+      var firstInningsSummaryTriggeredRef = React.useRef(false);
+      var matchSummaryTriggeredRef = React.useRef(false);
+
+      var [ambientEnabled, setAmbientEnabled] = React.useState(true);
+
+      var [batsmanAnim, setBatsmanAnim] = React.useState({ active: false, type: 'idle', startTime: 0 });
+      var [bowlerAnim, setBowlerAnim] = React.useState({ active: false, startTime: 0 });
+      var [effect, setEffect] = React.useState(null);
+      var effectTimeoutRef = React.useRef(null);
+
+      var canvasRef = React.useRef(null);
+      var mediaRecorderRef = React.useRef(null);
+      var recordedChunksRef = React.useRef([]);
+      var [isRecording, setIsRecording] = React.useState(false);
+      var [videoBlobUrl, setVideoBlobUrl] = React.useState(null);
+
+      var currentInnings = inningsData[currentInningsIdx];
+      var deliveries = currentInnings.deliveries;
+      var totalDeliveries = deliveries.length;
+
+      var matchState = React.useMemo(function() {
+        if (currentBallIdx < 0) return { totalRuns: 0, wickets: 0, legalBalls: 0, overs: "0.0" };
+        return computeStateUpTo(deliveries, currentBallIdx);
+      }, [currentBallIdx, deliveries]);
+
+      var currentDelivery = (currentBallIdx >= 0 && currentBallIdx < totalDeliveries) ? deliveries[currentBallIdx] : null;
+
+      var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
+      var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
+
+      // Load system voices
+      React.useEffect(function() {
+        loadSystemVoices();
+      }, []);
+
+      // Load stadium background
+      React.useEffect(() => {
+        loadStadiumBackground().then(() => setBackgroundReady(true));
+      }, []);
+
+      // Load audio and set up UI
+      React.useEffect(function() {
+        var initAudioOnInteraction = function() {
+          if (!audioCtx) {
+            initAudio();
+            if (ambientEnabled && !muteAudio) setAmbience(true);
+          }
+          document.removeEventListener('click', initAudioOnInteraction);
+        };
+        document.addEventListener('click', initAudioOnInteraction);
+        return function() { document.removeEventListener('click', initAudioOnInteraction); };
+      }, []);
+
+      // Apply ambience
+      React.useEffect(function() {
+        if (audioCtx) {
+          if (ambientEnabled && !muteAudio) setAmbience(true);
+          else setAmbience(false);
+        }
+      }, [ambientEnabled, muteAudio]);
+
+      // Preload player images
+      React.useEffect(() => {
+        async function preloadAllPlayers() {
+          const playerNamesSet = new Set();
+          for (let i = 0; i < inningsData.length; i++) {
+            const innings = inningsData[i];
+            Object.keys(innings.battingStats).forEach(name => playerNamesSet.add(name));
+            Object.keys(innings.bowlingStats).forEach(name => playerNamesSet.add(name));
+            innings.deliveries.forEach(d => {
+              if (d.striker) playerNamesSet.add(d.striker);
+              if (d.nonStriker) playerNamesSet.add(d.nonStriker);
+              if (d.bowler) playerNamesSet.add(d.bowler);
+              if (d.wicketPlayer) playerNamesSet.add(d.wicketPlayer);
+            });
+          }
+          const loadPromises = Array.from(playerNamesSet).map(name => loadPlayerImage(name));
+          await Promise.all(loadPromises);
+          setPlayerImagesLoaded(true);
+        }
+        preloadAllPlayers();
+      }, [inningsData]);
+
+      // Settings UI initialization (TTS provider)
+      React.useEffect(function() {
+        try {
+          const primarySelect = document.getElementById('primaryProvider');
+          const elevenlabsKey = document.getElementById('elevenlabsApiKey');
+          const elevenlabsVoice = document.getElementById('elevenlabsVoiceSelect');
+          const googleKey = document.getElementById('googleApiKey');
+          const googleVoice = document.getElementById('googleVoiceSelect');
+
+          if (primarySelect) primarySelect.value = storedPrimaryProvider;
+          if (elevenlabsKey) elevenlabsKey.value = storedElevenlabsKey;
+          if (elevenlabsVoice && storedElevenlabsVoice) elevenlabsVoice.value = storedElevenlabsVoice;
+          if (googleKey) googleKey.value = storedGoogleKey;
+          if (googleVoice && storedGoogleVoice) googleVoice.value = storedGoogleVoice;
+
+          const refreshEleven = document.getElementById('refreshElevenVoices');
+          if (refreshEleven) {
+            refreshEleven.onclick = async () => {
+              const key = document.getElementById('elevenlabsApiKey').value;
+              if (!key) {
+                alert('Please enter your ElevenLabs API key first');
+                return;
+              }
+              try {
+                const response = await fetch(`${BACKEND_URL}/voices`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ provider: 'elevenlabs', apiKey: key })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const voices = await response.json();
+                const select = document.getElementById('elevenlabsVoiceSelect');
+                if (select) {
+                  select.innerHTML = '<option value="">-- Select voice --</option>';
+                  voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.voice_id;
+                    let accent = 'English';
+                    if (voice.labels && typeof voice.labels === 'object' && voice.labels.accent) {
+                      accent = voice.labels.accent;
+                    }
+                    option.textContent = voice.name + ' (' + accent + ')';
+                    select.appendChild(option);
+                  });
+                  if (storedElevenlabsVoice) select.value = storedElevenlabsVoice;
+                }
+              } catch (err) {
+                console.error(err);
+                alert('Could not fetch voices: ' + err.message);
+              }
+            };
+          }
+
+          const refreshGoogle = document.getElementById('refreshGoogleVoices');
+          if (refreshGoogle) {
+            refreshGoogle.onclick = async () => {
+              const key = document.getElementById('googleApiKey').value;
+              if (!key) {
+                alert('Please enter your Google Cloud API key first');
+                return;
+              }
+              try {
+                const response = await fetch(`${BACKEND_URL}/voices`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ provider: 'google', apiKey: key })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const voices = await response.json();
+                const select = document.getElementById('googleVoiceSelect');
+                if (select) {
+                  select.innerHTML = '<option value="">-- Select voice --</option>';
+                  voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.name;
+                    option.textContent = voice.name + ' (' + voice.languageCodes[0] + ')';
+                    select.appendChild(option);
+                  });
+                  if (storedGoogleVoice) select.value = storedGoogleVoice;
+                }
+              } catch (err) {
+                console.error(err);
+                alert('Could not fetch voices: ' + err.message);
+              }
+            };
+          }
+
+          const saveBtn = document.getElementById('saveSettingsBtn');
+          if (saveBtn) {
+            saveBtn.onclick = () => {
+              const primary = document.getElementById('primaryProvider').value;
+              const elevenKey = document.getElementById('elevenlabsApiKey').value;
+              const elevenVoice = document.getElementById('elevenlabsVoiceSelect').value;
+              const googleKeyVal = document.getElementById('googleApiKey').value;
+              const googleVoiceVal = document.getElementById('googleVoiceSelect').value;
+              updateTtsSettings(primary, elevenKey, elevenVoice, googleKeyVal, googleVoiceVal);
+              alert('Settings saved.');
+            };
+          }
+
+          const settingsBtn = document.getElementById('showSettingsBtn');
+          const panel = document.getElementById('settingsPanel');
+          if (settingsBtn && panel) {
+            settingsBtn.onclick = () => {
+              panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            };
+          }
+        } catch (err) {
+          console.error('Settings init error', err);
+        }
+      }, []);
+
+      var toggleAmbience = function() { setAmbientEnabled(!ambientEnabled); };
+      var toggleMute = function() { setMuteAudio(!muteAudio); };
+
+      var addSummaryEntry = function(text) {
+        setCommentaryLog(function(prev) {
+          var newEntry = { id: Date.now() + Math.random(), text: text, timestamp: new Date().toLocaleTimeString(), isWicket: false, isSummary: true };
+          return [newEntry].concat(prev).slice(0, 50);
+        });
+      };
+
+      var playMatchIntro = function() {
+        if (introPlayedRef.current) return;
+        introPlayedRef.current = true;
+        var introText = "Welcome to " + matchInfo.venue + " for this exciting match between " + matchInfo.team1 + " and " + matchInfo.team2 + ". " + matchInfo.toss + ". The first innings is about to begin. We're set for a thrilling contest.";
+        addSummaryEntry(introText);
+        if (!muteAudio) speakWithCallback(introText, 'normal', function() {});
+      };
+
+      var showFirstInningsSummary = function(inningTeam, total, wickets, overs, battingStats, bowlingStats, targetScore) {
+        var topScorer = getTopScorer(battingStats);
+        var bestBowler = getBestBowler(bowlingStats);
+        var summary = "End of first innings. " + inningTeam + " scored " + total + "/" + wickets + " in " + overs + " overs. ";
+        if (topScorer.name) summary += "Top scorer: " + getLastName(topScorer.name) + " with " + topScorer.runs + " runs off " + topScorer.balls + " balls (" + topScorer.fours + " fours, " + topScorer.sixes + " sixes). ";
+        if (bestBowler.name) summary += "Best bowler: " + getLastName(bestBowler.name) + " with " + bestBowler.wickets + " wickets for " + bestBowler.runs + " runs. ";
+        summary += matchInfo.team2 + " needs " + targetScore + " runs to win.";
+        addSummaryEntry(summary);
+        if (!muteAudio) speakWithCallback(summary, 'normal', function() {});
+        if (!muteAudio && ambientEnabled) playReaction('applause');
+      };
+
+      var showFullMatchSummary = function() {
+        if (!isMatchFinished) return;
+        if (matchSummaryTriggeredRef.current) return;
+        matchSummaryTriggeredRef.current = true;
+
+        var secondTotal = matchState.totalRuns;
+        var secondWickets = matchState.wickets;
+        var winner = secondTotal >= target ? matchInfo.team2 : matchInfo.team1;
+        var margin = secondTotal >= target ? (target - secondTotal) + " wickets" : (target - secondTotal - 1) + " runs";
+        var resultText = "Match result: " + winner + " wins by " + margin + ". ";
+        var firstTopScorer = getTopScorer(firstInningsStats.battingStats);
+        var firstBestBowler = getBestBowler(firstInningsStats.bowlingStats);
+        var secondTopScorer = getTopScorer(currentInnings.battingStats);
+        var secondBestBowler = getBestBowler(currentInnings.bowlingStats);
+        resultText += firstInningsStats.team + " scored " + firstInningsStats.total + "/" + firstInningsStats.wickets + ". ";
+        if (firstTopScorer.name) resultText += "Top scorer: " + getLastName(firstTopScorer.name) + " (" + firstTopScorer.runs + "). ";
+        if (firstBestBowler.name) resultText += "Best bowler: " + getLastName(firstBestBowler.name) + " (" + firstBestBowler.wickets + " wickets). ";
+        resultText += matchInfo.team2 + " scored " + secondTotal + "/" + secondWickets + ". ";
+        if (secondTopScorer.name) resultText += "Top scorer: " + getLastName(secondTopScorer.name) + " (" + secondTopScorer.runs + "). ";
+        if (secondBestBowler.name) resultText += "Best bowler: " + getLastName(secondBestBowler.name) + " (" + secondBestBowler.wickets + " wickets). ";
+        resultText += "Player of the match: " + (secondTopScorer.runs > firstTopScorer.runs ? getLastName(secondTopScorer.name) : getLastName(firstTopScorer.name)) + " for their outstanding performance.";
+        setMatchResult(resultText);
+        addSummaryEntry(resultText);
+        if (!muteAudio) speakWithCallback(resultText, 'dramatic', function() {});
+        if (!muteAudio && ambientEnabled) playReaction('cheer');
+      };
+
+      React.useEffect(function() {
+        if (currentInningsIdx === 1 && firstInningsStats === null) {
+          var firstInnings = inningsData[0];
+          var firstTotal = firstInnings.deliveries.reduce(function(sum, d) { return sum + d.runs; }, 0);
+          var firstWickets = firstInnings.deliveries.filter(function(d) { return d.wicket; }).length;
+          setTarget(firstTotal + 1);
+          setFirstInningsStats({
+            team: firstInnings.team,
+            battingStats: firstInnings.battingStats,
+            bowlingStats: firstInnings.bowlingStats,
+            total: firstTotal,
+            wickets: firstWickets
+          });
+        }
+      }, [currentInningsIdx, inningsData, firstInningsStats]);
+
+      React.useEffect(function() {
+        if (isMatchFinished && firstInningsStats) {
+          showFullMatchSummary();
+          setIsPlaying(false);
+        }
+      }, [isMatchFinished, firstInningsStats]);
+
+      var addCommentaryEntry = function(delivery, idx) {
+        var commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target);
+        var ballDesc = "Innings " + (currentInningsIdx+1) + " • Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + commentaryText + (delivery.wicket ? " 🚨 WICKET!" : "");
+        setCommentaryLog(function(prev) {
+          var newEntry = { id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket };
+          return [newEntry].concat(prev).slice(0, 50);
+        });
+        return commentaryText;
+      };
+
+      var triggerEffectAndReaction = function(runs, isWicket) {
+        if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
+        var type = 'normal';
+        if (isWicket) type = 'wicket';
+        else if (runs === 4) type = 'boundary';
+        else if (runs === 6) type = 'six';
+        else if (runs === 0) type = 'dot';
+        setEffect({ type: type, startTime: Date.now() });
+        effectTimeoutRef.current = setTimeout(function() { setEffect(null); }, 1000);
+
+        if (!muteAudio && ambientEnabled) {
+          if (isWicket) playReaction('gasp');
+          else if (runs === 4 || runs === 6) playReaction('cheer');
+        }
+      };
+
+      var triggerAnimations = function(runs, isWicket) {
+        var now = Date.now();
+        if (runs > 0 && !isWicket) {
+          setBatsmanAnim({ active: true, type: 'shot', startTime: now });
+        } else if (isWicket) {
+          setBatsmanAnim({ active: true, type: 'miss', startTime: now });
+        }
+        setBowlerAnim({ active: true, startTime: now });
+        setTimeout(function() {
+          setBatsmanAnim({ active: false, type: 'idle' });
+          setBowlerAnim({ active: false });
+        }, 300);
+      };
+
+      var advanceToNextBall = React.useCallback(function() {
+        if (isMatchFinished) {
+          setIsPlaying(false);
+          return;
+        }
+        if (isInningsFinished && currentInningsIdx === 0) {
+          var firstTotal = matchState.totalRuns;
+          var firstWickets = matchState.wickets;
+          var firstOvers = matchState.overs;
+          var firstTeam = currentInnings.team;
+          var firstBattingStats = currentInnings.battingStats;
+          var firstBowlingStats = currentInnings.bowlingStats;
+          var targetScore = firstTotal + 1;
+
+          if (!firstInningsSummaryTriggeredRef.current) {
+            firstInningsSummaryTriggeredRef.current = true;
+            showFirstInningsSummary(firstTeam, firstTotal, firstWickets, firstOvers, firstBattingStats, firstBowlingStats, targetScore);
+          }
+
+          setIsPlaying(false);
+          setFirstInningsStats({
+            team: firstTeam,
+            battingStats: firstBattingStats,
+            bowlingStats: firstBowlingStats,
+            total: firstTotal,
+            wickets: firstWickets
+          });
+          setTarget(targetScore);
+          setCurrentInningsIdx(1);
+          setCurrentBallIdx(-1);
+          if (!muteAudio) speakWithCallback("End of first innings. " + firstTeam + " scored " + firstTotal + " for " + firstWickets + ". " + inningsData[1].team + " needs " + targetScore + " runs to win. Press start to begin the chase.", 'normal', function() {});
+          return;
+        }
+
+        if (currentBallIdx + 1 < totalDeliveries) {
+          var nextIdx = currentBallIdx + 1;
+          var nextDelivery = deliveries[nextIdx];
+          setCurrentBallIdx(nextIdx);
+          var commentaryText = addCommentaryEntry(nextDelivery, nextIdx);
+          triggerEffectAndReaction(nextDelivery.runs, nextDelivery.wicket);
+          triggerAnimations(nextDelivery.runs, nextDelivery.wicket);
+          if (!muteAudio) {
+            var intro = getLastName(nextDelivery.striker) + " facing " + getLastName(nextDelivery.bowler) + ". ";
+            var fullText = intro + commentaryText;
+            var style = 'normal';
+            if (nextDelivery.runs === 4 || nextDelivery.runs === 6) style = 'excited';
+            if (nextDelivery.wicket) style = 'dramatic';
+            setInternalSpeaking(true);
+            speakWithCallback(fullText, style, function() { setInternalSpeaking(false); });
+          }
+        }
+      }, [currentBallIdx, deliveries, totalDeliveries, currentInningsIdx, matchState, isInningsFinished, isMatchFinished, target, inningsData, currentInnings, muteAudio]);
+
+      var manualNextBall = function() {
+        if (internalSpeaking) {
+          clearAllSpeech();
+          setInternalSpeaking(false);
+        }
+        if (!isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
+          advanceToNextBall();
+        }
+      };
+
+      React.useEffect(function() {
+        if (!isPlaying) return;
+        if (isMatchFinished) {
+          setIsPlaying(false);
+          return;
+        }
+        var intervalTime = 100 / speed;
+        var timer = setInterval(function() {
+          if (!internalSpeaking && !isMatchFinished && currentBallIdx + 1 < totalDeliveries) {
+            advanceToNextBall();
+          }
+        }, intervalTime);
+        return function() { clearInterval(timer); };
+      }, [isPlaying, speed, internalSpeaking, currentBallIdx, advanceToNextBall, totalDeliveries, isMatchFinished]);
+
+      var resetSimulation = function() {
+        setIsPlaying(false);
+        if (internalSpeaking) {
+          clearAllSpeech();
+          setInternalSpeaking(false);
+        }
+        if (effectTimeoutRef.current) clearTimeout(effectTimeoutRef.current);
+        setEffect(null);
+        startGuardRef.current = false;
+        introPlayedRef.current = false;
+        firstInningsSummaryTriggeredRef.current = false;
+        matchSummaryTriggeredRef.current = false;
+        setCurrentInningsIdx(0);
+        setCurrentBallIdx(-1);
+        setCommentaryLog([]);
+        setVideoBlobUrl(null);
+        setFirstInningsStats(null);
+        setTarget(initialTarget);
+        setMatchResult(null);
+        if (mediaRecorderRef.current && isRecording) {
+          mediaRecorderRef.current.stop();
+          setIsRecording(false);
+        }
+      };
+
+      var startMatch = function() {
+        if (startGuardRef.current) return;
+        startGuardRef.current = true;
+        setTimeout(function() { startGuardRef.current = false; }, 500);
+
+        if (currentInningsIdx === 0 && currentBallIdx === -1 && !introPlayedRef.current) {
+          playMatchIntro();
+        }
+
+        if (currentInningsIdx === 0 && isInningsFinished) {
+          var firstTotal = matchState.totalRuns;
+          var firstWickets = matchState.wickets;
+          var firstOvers = matchState.overs;
+          var firstTeam = currentInnings.team;
+          var firstBattingStats = currentInnings.battingStats;
+          var firstBowlingStats = currentInnings.bowlingStats;
+          var targetScore = firstTotal + 1;
+          if (!firstInningsSummaryTriggeredRef.current) {
+            firstInningsSummaryTriggeredRef.current = true;
+            showFirstInningsSummary(firstTeam, firstTotal, firstWickets, firstOvers, firstBattingStats, firstBowlingStats, targetScore);
+          }
+          setFirstInningsStats({
+            team: firstTeam,
+            battingStats: firstBattingStats,
+            bowlingStats: firstBowlingStats,
+            total: firstTotal,
+            wickets: firstWickets
+          });
+          setTarget(targetScore);
+          setCurrentInningsIdx(1);
+          setCurrentBallIdx(-1);
+          setTimeout(function() { startMatch(); }, 50);
+          return;
+        }
+
+        if (currentBallIdx === -1) {
+          var firstDelivery = deliveries[0];
+          setCurrentBallIdx(0);
+          var commentary = addCommentaryEntry(firstDelivery, 0);
+          triggerEffectAndReaction(firstDelivery.runs, firstDelivery.wicket);
+          triggerAnimations(firstDelivery.runs, firstDelivery.wicket);
+          if (!muteAudio) {
+            var intro = getLastName(firstDelivery.striker) + " facing " + getLastName(firstDelivery.bowler) + ". ";
+            var style = (firstDelivery.runs === 4 || firstDelivery.runs === 6) ? 'excited' : 'normal';
+            setInternalSpeaking(true);
+            speakWithCallback(intro + commentary, style, function() { setInternalSpeaking(false); });
+          }
+        }
+        setIsPlaying(true);
+      };
+
+      var pauseMatch = function() { setIsPlaying(false); };
+
+      var drawCanvas = React.useCallback(function() {
+        var canvas = canvasRef.current;
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        var w = canvas.width, h = canvas.height;
+
+        if (stadiumImageLoaded && stadiumImage) {
+          ctx.drawImage(stadiumImage, 0, 0, w, h);
+          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillRect(0, 0, w, h);
+        } else {
+          var grad = ctx.createLinearGradient(0, 0, 0, h);
+          grad.addColorStop(0, '#0b2b26');
+          grad.addColorStop(1, '#051a17');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, w, h);
+        }
+
+        var pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
+        ctx.fillStyle = 'rgba(44,94,46,0.7)';
+        ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
+        ctx.beginPath();
+        ctx.strokeStyle = '#fff5e0';
+        ctx.lineWidth = 2;
+        ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.9);
+        ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.9);
+        ctx.stroke();
+        ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.1);
+        ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.1);
+        ctx.stroke();
+        ctx.fillStyle = '#b97c3e';
+        ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
+        ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
+
+        var batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
+        var strikerName = currentDelivery ? currentDelivery.striker : null;
+        var strikerImage = strikerName ? playerImageCache.get(strikerName) : null;
+        if (strikerImage && strikerImage.complete && strikerImage.naturalWidth > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(batsmanX + 40, batsmanY + 40, 35, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(strikerImage, batsmanX + 5, batsmanY + 5, 70, 70);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#3b82f6';
+          ctx.beginPath();
+          ctx.arc(batsmanX + 40, batsmanY + 40, 30, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 20px "Inter"';
+          ctx.fillText(strikerName ? getLastName(strikerName).charAt(0).toUpperCase() : '?', batsmanX + 30, batsmanY + 55);
+        }
+
+        var batAngle = 0;
+        if (batsmanAnim.active) {
+          var elapsed = Math.min(1, (Date.now() - batsmanAnim.startTime) / 300);
+          if (batsmanAnim.type === 'shot') {
+            batAngle = -Math.PI / 3 * (1 - elapsed);
+          } else if (batsmanAnim.type === 'miss') {
+            batAngle = -Math.PI / 4 * (1 - elapsed);
+          }
+        }
+        ctx.save();
+        ctx.translate(batsmanX + 60, batsmanY + 50);
+        ctx.rotate(batAngle);
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(0, 0, 20, 5);
+        ctx.restore();
+
+        var bowlerX = pitchX + pitchW * 0.15 - 40, bowlerY = pitchY + pitchH * 0.9 - 45;
+        var bowlerName = currentDelivery ? currentDelivery.bowler : null;
+        var bowlerImage = bowlerName ? playerImageCache.get(bowlerName) : null;
+        if (bowlerImage && bowlerImage.complete && bowlerImage.naturalWidth > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(bowlerX + 40, bowlerY + 40, 35, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(bowlerImage, bowlerX + 5, bowlerY + 5, 70, 70);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.arc(bowlerX + 40, bowlerY + 40, 30, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 20px "Inter"';
+          ctx.fillText(bowlerName ? getLastName(bowlerName).charAt(0).toUpperCase() : '?', bowlerX + 30, bowlerY + 55);
+        }
+
+        var armAngle = 0;
+        if (bowlerAnim.active) {
+          var elapsed = Math.min(1, (Date.now() - bowlerAnim.startTime) / 300);
+          armAngle = -Math.PI / 2 * (1 - elapsed);
+        }
+        ctx.save();
+        ctx.translate(bowlerX + 50, bowlerY + 30);
+        ctx.rotate(armAngle);
+        ctx.fillStyle = '#d1d5db';
+        ctx.fillRect(0, 0, 30, 8);
+        ctx.restore();
+
+        var nonStrikerX = pitchX + pitchW * 0.5 - 20, nonStrikerY = pitchY + pitchH * 0.8;
+        var nonStrikerName = currentDelivery ? currentDelivery.nonStriker : null;
+        var nonStrikerImage = nonStrikerName ? playerImageCache.get(nonStrikerName) : null;
+        if (nonStrikerImage && nonStrikerImage.complete && nonStrikerImage.naturalWidth > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(nonStrikerX + 20, nonStrikerY + 20, 20, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(nonStrikerImage, nonStrikerX, nonStrikerY, 40, 40);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#3b82f6';
+          ctx.beginPath();
+          ctx.arc(nonStrikerX + 20, nonStrikerY + 20, 15, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = 'bold 12px "Inter"';
+          ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 15, nonStrikerY + 28);
+        }
+
+        var fielders = [
+          { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
+        ];
+        var t = Date.now() / 1000;
+        fielders.forEach(function(f) {
+          var dx = Math.sin(t * 2 + f.x * 10) * 3;
+          var dy = Math.cos(t * 1.5 + f.y * 8) * 3;
+          ctx.fillStyle = '#9ca3af';
+          ctx.beginPath();
+          ctx.arc(f.x * w + dx, f.y * h + dy, 8, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, w, 70);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 28px "Inter", sans-serif';
+        ctx.fillText(matchInfo.team1, 20, 45);
+        ctx.fillText(matchInfo.team2, w - 20 - ctx.measureText(matchInfo.team2).width, 45);
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(20, 70, 180, 50);
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 32px monospace';
+        var scoreText = matchState.totalRuns + '/' + matchState.wickets;
+        ctx.fillText(scoreText, 30, 110);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '16px monospace';
+        ctx.fillText('(' + matchState.overs + ')', 30 + ctx.measureText(scoreText).width + 10, 105);
+
+        if (currentInningsIdx === 1) {
+          ctx.fillStyle = 'rgba(0,0,0,0.8)';
+          ctx.fillRect(w - 150, 70, 130, 50);
+          ctx.fillStyle = '#ffaa66';
+          ctx.font = 'bold 24px monospace';
+          ctx.fillText('TARGET', w - 140, 95);
+          ctx.fillStyle = '#facc15';
+          ctx.font = 'bold 32px monospace';
+          ctx.fillText(target.toString(), w - 140 + ctx.measureText('TARGET').width + 15, 110);
+        }
+
+        ctx.fillStyle = '#ddd';
+        ctx.font = '12px monospace';
+        ctx.fillText(matchInfo.venue + " • " + matchInfo.date, 20, 140);
+        ctx.fillText("Toss: " + matchInfo.toss, 20, 160);
+        
+        if (currentDelivery) {
+          ctx.fillStyle = '#f0f0f0';
+          ctx.font = 'bold 14px "Inter"';
+          ctx.fillText("Striker: " + getLastName(currentDelivery.striker), 20, 195);
+          ctx.fillText("Bowler: " + getLastName(currentDelivery.bowler), 20, 215);
+          ctx.fillText("Non-striker: " + getLastName(currentDelivery.nonStriker), 20, 235);
+        }
+
+        var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, h-45, w, 45);
+        ctx.font = 'italic 12px "JetBrains Mono"';
+        ctx.fillStyle = '#e2e8f0';
+        ctx.fillText("🎙️ " + lastComment.slice(0, 100), 10, h-20);
+
+        if (effect) {
+          var elapsed = (Date.now() - effect.startTime) / 1000;
+          var alpha = Math.max(0, 1 - elapsed);
+          var radius = 50 * (1 - elapsed) + 20;
+          var color = '#ffaa44';
+          var label = '';
+          if (effect.type === 'boundary') { color = '#ff8800'; label = '4'; }
+          if (effect.type === 'six') { color = '#ff3300'; label = '6'; }
+          if (effect.type === 'wicket') { color = '#aa66ff'; label = 'W'; }
+          if (effect.type === 'dot') color = '#88aaff';
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.beginPath();
+          ctx.arc(batsmanX + 40, batsmanY + 40, radius, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          if (label) {
+            ctx.font = "bold " + Math.floor(28 * (1 - elapsed * 0.5)) + "px \"Inter\"";
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(label, batsmanX + 30, batsmanY + 25);
+          }
+          if (effect.type === 'boundary' || effect.type === 'six') {
+            for (var i = 0; i < 6; i++) {
+              var angle = (i / 6) * Math.PI * 2;
+              var dx = Math.cos(angle) * (radius + 15);
+              var dy = Math.sin(angle) * (radius + 15);
+              ctx.beginPath();
+              ctx.moveTo(batsmanX + 40, batsmanY + 40);
+              ctx.lineTo(batsmanX + 40 + dx, batsmanY + 40 + dy);
+              ctx.lineWidth = 3;
+              ctx.strokeStyle = color;
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, backgroundReady]);
+
+      React.useEffect(function() { drawCanvas(); }, [drawCanvas, backgroundReady]);
+
+      var startRecording = function() {
+        if (!canvasRef.current) {
+          alert('Canvas not ready');
+          return;
+        }
+        if (!audioCtx) {
+          initAudio();
+          if (ambientEnabled && !muteAudio) setAmbience(true);
+        }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
+        const canvasStream = canvasRef.current.captureStream(30);
+        let audioStream = null;
+        if (recordingDestinationNode && recordingDestinationNode.stream) {
+          audioStream = recordingDestinationNode.stream;
+        }
+        let combinedStream;
+        if (audioStream) {
+          const videoTracks = canvasStream.getVideoTracks();
+          const audioTracks = audioStream.getAudioTracks();
+          combinedStream = new MediaStream([...videoTracks, ...audioTracks]);
+          console.log('Recording with audio');
+        } else {
+          combinedStream = canvasStream;
+          console.warn('No audio stream available – recording video only');
+          alert('No audio stream available. Ensure you have started the match and selected an external TTS provider (ElevenLabs/Google) for audio capture.');
+        }
+
+        recordedChunksRef.current = [];
+        const mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+        mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) recordedChunksRef.current.push(e.data); };
+        mediaRecorder.onstop = function() {
+          const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          setVideoBlobUrl(url);
+          setIsRecording(false);
+        };
+        mediaRecorder.start();
+        mediaRecorderRef.current = mediaRecorder;
+        setIsRecording(true);
+      };
+
+      var stopRecording = function() {
+        if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
+      };
+
+      var downloadVideo = function() {
+        if (videoBlobUrl) {
+          var a = document.createElement('a');
+          a.href = videoBlobUrl;
+          a.download = "cricket-highlights-" + Date.now() + ".webm";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } else {
+          alert("No recorded video. Click 'Start Recording' and simulate the match.");
+        }
+      };
+
+      var progressPercent = (currentBallIdx >= 0 && totalDeliveries > 0) ? ((currentBallIdx+1)/totalDeliveries)*100 : 0;
+      var isMatchOver = isMatchFinished;
+      var startDisabled = isMatchOver;
+
+      var systemVoiceWarning = (storedPrimaryProvider === 'system') ? React.createElement('div', { className: "warning" }, "⚠️ System voice will NOT be captured in video. Use ElevenLabs or Google Cloud for audio in recording.") : null;
+
+      return (
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex flex-wrap justify-between items-center mb-6 pb-4 border-b border-gray-700 gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-teal-300 to-emerald-400 bg-clip-text text-transparent">Cricket Broadcast Pro</h1>
+              <label className="cursor-pointer bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1.5 rounded-full transition">
+                <span>📁 Upload New JSON</span>
+                <input type="file" accept=".json" className="hidden" onChange={onFileUpload} />
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={toggleMute} className={`px-2 py-1 rounded text-xs ${muteAudio ? "bg-red-700" : "bg-teal-700"}`}>{muteAudio ? "🔇 Audio Off" : "🔊 Audio On"}</button>
+              <button onClick={toggleAmbience} className={`px-2 py-1 rounded text-xs ${ambientEnabled ? "bg-green-700" : "bg-gray-600"}`}>{ambientEnabled ? "🎧 Ambience On" : "🎧 Ambience Off"}</button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="space-y-6">
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Match Information</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Match:</span><span className="font-semibold text-white">{matchInfo.teams}</span></div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Date:</span><span>{matchInfo.date}</span></div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Venue:</span><span>{matchInfo.venue}</span></div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Toss:</span><span>{matchInfo.toss}</span></div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Tournament:</span><span>{matchInfo.tournament}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-400">Umpires:</span><span>{matchInfo.umpires}</span></div>
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Broadcast Control</h3>
+                <div className="flex flex-wrap gap-2">
+                  {!isPlaying ? (
+                    <button onClick={startMatch} disabled={startDisabled} className="bg-green-700 hover:bg-green-600 disabled:opacity-50 px-4 py-2 rounded-full text-sm font-semibold">▶ START BROADCAST</button>
+                  ) : (
+                    <button onClick={pauseMatch} className="bg-yellow-700 hover:bg-yellow-600 px-4 py-2 rounded-full text-sm font-semibold">⏸ PAUSE</button>
+                  )}
+                  <button onClick={manualNextBall} disabled={isMatchFinished || currentBallIdx+1 >= totalDeliveries} className="bg-blue-800 hover:bg-blue-700 disabled:opacity-40 px-3 py-2 rounded-full text-xs">⏩ Next Ball</button>
+                  <button onClick={resetSimulation} className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-full text-xs">🔄 Reset</button>
+                  <div className="flex items-center gap-1 ml-auto"><span className="text-xs">Speed:</span>{[1,2,4].map(sp => (<button key={sp} onClick={() => setSpeed(sp)} className={`px-2 py-1 rounded text-xs ${speed === sp ? "bg-teal-600" : "bg-gray-700"}`}>{sp}x</button>))}</div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={startRecording} disabled={isPlaying === false && currentBallIdx === -1} className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full">🔴 Start Recording (with audio)</button>
+                  <button onClick={stopRecording} className="bg-gray-600 hover:bg-gray-500 text-xs px-3 py-1 rounded-full">⏹️ Stop & Save</button>
+                  <button onClick={downloadVideo} disabled={!videoBlobUrl} className="bg-purple-700 hover:bg-purple-600 disabled:opacity-50 text-xs px-3 py-1 rounded-full">📥 Download Video</button>
+                </div>
+                {videoBlobUrl && <div className="mt-2 text-xs text-green-300">✅ Video ready (includes audio if external TTS was used)</div>}
+                {systemVoiceWarning}
+              </div>
+
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Live Overlay</h3>
+                <div className="flex justify-between items-center flex-wrap gap-2">
+                  <div><div className="text-3xl font-mono font-bold text-teal-300">{matchState.totalRuns}/{matchState.wickets}</div><div className="text-gray-400 text-sm">{matchState.overs} overs</div></div>
+                  <div className="text-right"><div className="text-gray-400 text-xs">{currentInningsIdx === 0 ? "1st Innings" : "Target: " + target}</div>{currentDelivery && <div className="text-sm font-mono">{getLastName(currentDelivery.striker)} {currentDelivery.runs}*</div>}</div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="text-gray-400">Striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.striker) : "-"}</span><br /><span className="text-gray-400">Bowler:</span> <span className="font-bold text-emerald-300">{currentDelivery ? getLastName(currentDelivery.bowler) : "-"}</span></div>
+                  <div><span className="text-gray-400">Non-striker:</span> <span className="font-bold text-yellow-200">{currentDelivery ? getLastName(currentDelivery.nonStriker) : "-"}</span><br /><span className="text-gray-400">Last Ball:</span> <span className="font-mono">{currentDelivery ? currentDelivery.runs + " runs" + (currentDelivery.wicket ? " ❌" : "") : "-"}</span></div>
+                </div>
+                <div className="mt-3 w-full bg-gray-700 h-1 rounded-full"><div className="bg-teal-400 h-1 rounded-full transition-all" style={{ width: progressPercent + "%" }}></div></div>
+                {firstInningsStats && <div className="mt-2 text-xs text-gray-400">1st innings: {firstInningsStats.total}/{firstInningsStats.wickets} ({firstInningsStats.team})</div>}
+              </div>
+
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Stream Settings</h3>
+                <div className="space-y-2 text-sm">
+                  <div><label className="block text-gray-400 mb-1">YouTube Stream Key</label><input type="text" placeholder="ABCD-1234-WXYZ-5678" className="w-full bg-gray-700 rounded p-1 text-xs" /></div>
+                  <div><label className="block text-gray-400 mb-1">RTMP Server</label><input type="text" placeholder="rtmp://a.rtmp.youtube.com/live2" className="w-full bg-gray-700 rounded p-1 text-xs" /></div>
+                  <button className="bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2">Connect</button>
+                  <hr className="border-gray-600 my-2" />
+                  <div><label className="block text-gray-400 mb-1">Sportmonks API Key</label><input type="text" placeholder="Enter your Sportmonks API key" className="w-full bg-gray-700 rounded p-1 text-xs" /></div>
+                  <div className="flex gap-2 mt-2"><input type="text" placeholder="Match ID" className="flex-1 bg-gray-700 rounded p-1 text-xs" /><button className="bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded">Load</button></div>
+                  <div className="flex gap-2 mt-2"><div><label className="block text-gray-400 text-xs">Poll Interval (sec)</label><input type="number" defaultValue="10" className="w-20 bg-gray-700 rounded p-1 text-xs" /></div><div><label className="block text-gray-400 text-xs">Max Balls Fetch</label><input type="number" defaultValue="6" className="w-20 bg-gray-700 rounded p-1 text-xs" /></div></div>
+                  <button className="bg-teal-600 hover:bg-teal-500 text-xs px-3 py-1 rounded mt-2">Save API Settings</button>
+                  <p className="text-xs text-gray-500 mt-2 italic">Note: These are placeholders. Actual streaming requires external software/API integration.</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <button id="showSettingsBtn" className="w-full text-left text-teal-300 font-semibold flex justify-between items-center"><span>TTS Provider Settings</span><span>▼</span></button>
+                <div id="settingsPanel" style={{ display: 'none' }} className="mt-3 space-y-3 text-sm">
+                  <div><label className="block text-gray-400 mb-1">Primary Provider</label><select id="primaryProvider" className="w-full bg-gray-700 rounded p-1"><option value="system">System Voice (browser)</option><option value="elevenlabs">ElevenLabs</option><option value="google">Google Cloud</option></select></div>
+                  <div><label className="block text-gray-400 mb-1">ElevenLabs API Key</label><input type="password" id="elevenlabsApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="sk_..." /><div className="flex gap-1"><select id="elevenlabsVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select><button id="refreshElevenVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button></div></div>
+                  <div><label className="block text-gray-400 mb-1">Google Cloud API Key</label><input type="password" id="googleApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="AIza..." /><div className="flex gap-1"><select id="googleVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select><button id="refreshGoogleVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button></div></div>
+                  <button id="saveSettingsBtn" className="bg-green-700 text-xs px-3 py-1 rounded mt-1">Save Settings</button>
+                  <p className="text-xs text-gray-400 mt-1">Keys stored in your browser. External TTS will be captured in video.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Social Reactions</h3>
+                <div className="h-48 overflow-y-auto space-y-2 text-sm">
+                  {commentaryLog.length === 0 && <p className="text-gray-500 italic text-xs">No reactions yet.</p>}
+                  {commentaryLog.map(c => (<div key={c.id} className={`p-2 rounded bg-gray-700/50 border-l-2 ${c.isWicket ? "border-red-500" : "border-teal-500"}`}><div className="flex items-center gap-2"><span className="text-gray-400 text-[10px]">{c.timestamp}</span><span className="font-bold text-xs text-teal-300">@fan</span><span className="text-gray-300 text-xs">says:</span></div><p className="text-gray-200 text-xs mt-1">{c.text}</p></div>))}
+                </div>
+              </div>
+
+              <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
+                <h3 className="text-lg font-semibold text-teal-300 mb-3">Broadcast Preview</h3>
+                <canvas ref={canvasRef} width={600} height={400} className="w-full rounded-xl border border-teal-500/40" style={{ aspectRatio: '600/400' }}></canvas>
+              </div>
+            </div>
+          </div>
+
+          {(currentInningsIdx === 0 && isInningsFinished) && <div className="mt-4 bg-blue-800/50 p-2 rounded-xl text-center text-sm">🏏 First innings finished! Click START to begin the chase.</div>}
+          {isMatchFinished && <div className="mt-4 bg-gradient-to-r from-amber-800 to-orange-800 p-3 rounded-xl text-center result-banner">🏆 MATCH RESULT 🏆 {matchResult ? matchResult.split('.')[0] : `Finished: ${matchState.totalRuns}/${matchState.wickets} • Target: ${target}`}</div>}
+        </div>
+      );
     };
-    // ---------- End MatchSimulator ----------
 
     // --------------------------------------------------------------
-    // Initialize app with fallback for older browsers
+    // Initialize app
     // --------------------------------------------------------------
     function initApp() {
       try {
