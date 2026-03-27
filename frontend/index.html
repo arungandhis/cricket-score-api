@@ -738,17 +738,14 @@
     }
 
     // --------------------------------------------------------------
-    // Player image loading and caching
+    // Player image loading and caching (using DiceBear initials)
     // --------------------------------------------------------------
     let playerImageCache = new Map();
 
     function getPlayerImageUrl(fullName) {
       if (!fullName) return null;
-      const nameParts = fullName.split(' ');
-      const initials = nameParts.map(p => p.charAt(0).toUpperCase()).join('');
-      const backgroundColor = '0D8ABC';
-      const textColor = 'FFFFFF';
-      return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=80&bold=true&length=2`;
+      const seed = encodeURIComponent(fullName);
+      return `https://api.dicebear.com/9.x/initials/svg?seed=${seed}&backgroundColor=0D8ABC&radius=50&size=80&fontSize=40&fontWeight=600`;
     }
 
     async function loadPlayerImage(fullName) {
@@ -774,7 +771,7 @@
     }
 
     // --------------------------------------------------------------
-    // Stadium background image loading
+    // Stadium background image loading (reliable free image)
     // --------------------------------------------------------------
     let stadiumImage = null;
     let stadiumImageLoaded = false;
@@ -783,7 +780,7 @@
       return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
-        img.src = 'https://images.pexels.com/photos/163452/cricket-stadium-sport-field-163452.jpeg?auto=compress&cs=tinysrgb&w=1200';
+        img.src = 'https://cdn.pixabay.com/photo/2016/01/20/18/41/cricket-1151401_1280.jpg';
         img.onload = () => {
           stadiumImage = img;
           stadiumImageLoaded = true;
@@ -798,7 +795,7 @@
     }
 
     // --------------------------------------------------------------
-    // React components
+    // React components (ErrorBoundary, StatsPanel, App, MatchSimulator)
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -891,9 +888,6 @@
       );
     };
 
-    // --------------------------------------------------------------
-    // App component (with updated loadRecentMatches)
-    // --------------------------------------------------------------
     var App = function() {
       var [matchData, setMatchData] = React.useState(null);
       var [error, setError] = React.useState(null);
@@ -1023,7 +1017,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component (full version from previous working state)
+    // MatchSimulator component (full version with all features)
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
