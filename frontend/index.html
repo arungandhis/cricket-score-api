@@ -10,7 +10,7 @@
     * { font-family: 'Inter', sans-serif; }
     .commentary-text { font-family: 'JetBrains Mono', monospace; }
     canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; width: 100%; height: auto; }
-    .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; }
+    .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; z-index: 1001; }
     .stats-table { overflow-x: auto; max-width: 100%; }
     .stats-table table { min-width: 500px; }
     .result-banner { animation: pulse 1s ease-in-out infinite; }
@@ -20,6 +20,8 @@
     .settings-panel input, .settings-panel select { background: #374151; border: none; border-radius: 0.375rem; padding: 0.25rem 0.5rem; font-size: 0.75rem; }
     .settings-panel button { background: #2dd4bf; color: #111; font-size: 0.7rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; }
     .warning { background: #facc15; color: #1f2937; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; margin-top: 6px; }
+    #root { min-height: 100vh; }
+    .loading { padding: 20px; text-align: center; color: #9ca3af; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
@@ -27,11 +29,23 @@
   <div id="root">Loading application...</div>
   <div id="error-message" style="display: none;"></div>
 
+  <!-- Global error handler to catch any script errors -->
+  <script>
+    window.addEventListener('error', function(event) {
+      var errDiv = document.getElementById('error-message');
+      if (errDiv) {
+        errDiv.style.display = 'block';
+        errDiv.className = 'error-bar';
+        errDiv.innerHTML = '⚠️ JavaScript error: ' + (event.message || 'Unknown error');
+      }
+    });
+  </script>
+
   <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/babel-standalone@6.26.0/babel.min.js"></script>
 
-  <script type="text/babel">
+  <script type="text/babel" data-presets="es2015,react,stage-2">
     // --------------------------------------------------------------
     // Helper: get last name
     // --------------------------------------------------------------
@@ -567,6 +581,16 @@
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
         throw new Error("Invalid Cricsheet format: need two innings");
       }
+      // Safe property access (no optional chaining)
+      var tournament = "N/A";
+      if (json.info.event && json.info.event.name) tournament = json.info.event.name;
+      else if (json.info.competition && json.info.competition.name) tournament = json.info.competition.name;
+      
+      var umpires = "N/A";
+      if (json.info.officials && json.info.officials.umpires && json.info.officials.umpires.length) {
+        umpires = json.info.officials.umpires.join(', ');
+      }
+      
       var matchInfo = {
         teams: (json.info.teams && json.info.teams.join(" vs ")) || "Team A vs Team B",
         team1: json.info.teams ? json.info.teams[0] : "Team A",
@@ -576,8 +600,8 @@
         winner: (json.info.outcome && json.info.outcome.winner) || "N/A",
         toss: json.info.toss ? json.info.toss.winner + " won the toss and chose to " + json.info.toss.decision : "No toss info",
         maxOvers: json.info.overs || 20,
-        tournament: json.info.event?.name || json.info.competition?.name || "N/A",
-        umpires: json.info.officials?.umpires ? json.info.officials.umpires.join(', ') : "N/A"
+        tournament: tournament,
+        umpires: umpires
       };
       var inningsData = [];
       for (var innIdx = 0; innIdx < json.innings.length; innIdx++) {
@@ -2035,6 +2059,10 @@
             ReactDOM.createRoot(rootElement).render(React.createElement(ErrorBoundary, null, React.createElement(App)));
           } else {
             ReactDOM.render(React.createElement(ErrorBoundary, null, React.createElement(App)), rootElement);
+          }
+          // Remove loading text
+          if (rootElement.innerText === 'Loading application...') {
+            rootElement.innerText = '';
           }
         }
       } catch (err) {
