@@ -924,21 +924,12 @@
         setLoadingRecent(true);
         setError(null);
         try {
-          // Use allorigins.win/get to get base64 encoded ZIP data (avoids CORS and binary corruption)
-          const proxyUrl = 'https://api.allorigins.win/get?url=';
+          // Use a more reliable CORS proxy that often works
+          const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
           const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
-          const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
+          const response = await fetch(proxyUrl + targetUrl);
           if (!response.ok) throw new Error(`HTTP ${response.status} – ${response.statusText}`);
-          const json = await response.json();
-          if (!json.contents) throw new Error('No contents in response');
-          // Decode base64 to binary
-          const base64 = json.contents;
-          const binaryString = atob(base64);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-          const blob = new Blob([bytes], { type: 'application/zip' });
+          const blob = await response.blob();
           const zip = await JSZip.loadAsync(blob);
           const matches = [];
           for (let fileName in zip.files) {
@@ -958,7 +949,7 @@
           setRecentMatches(matches);
         } catch (err) {
           console.error('Load error:', err);
-          setError('Failed to load recent matches: ' + err.message + '. Please try again later or use the manual upload.');
+          setError('Failed to load recent matches: ' + err.message + '. Please try again later or use the manual upload. (CORS proxies may be temporarily blocked.)');
         } finally {
           setLoadingRecent(false);
         }
