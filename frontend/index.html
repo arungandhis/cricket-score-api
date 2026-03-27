@@ -60,7 +60,6 @@
     // Realistic commentary generator
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
-      // ... (same as previous)
       var runs = delivery.runs;
       var isWicket = delivery.wicket;
       var wicketKind = delivery.wicketKind;
@@ -120,7 +119,7 @@
     };
 
     // --------------------------------------------------------------
-    // Backend URL
+    // Backend URL (must be your multi‑provider backend)
     // --------------------------------------------------------------
     const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com';
 
@@ -576,7 +575,7 @@
     }
 
     // --------------------------------------------------------------
-    // Match parsing and simulation (same as before)
+    // Match parsing and simulation
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -772,7 +771,7 @@
     }
 
     // --------------------------------------------------------------
-    // React components (ErrorBoundary, StatsPanel, App, MatchSimulator)
+    // React components
     // --------------------------------------------------------------
     class ErrorBoundary extends React.Component {
       constructor(props) {
@@ -908,12 +907,18 @@
                 const teams = (json.info && json.info.teams) ? json.info.teams.join(' vs ') : 'Unknown match';
                 const date = (json.info && json.info.dates && json.info.dates[0]) ? json.info.dates[0] : 'Unknown date';
                 const displayName = teams + ' – ' + date;
-                matches.push({ fileName, displayName, json });
+                matches.push({ fileName, displayName, json, date });
               } catch(e) {
                 console.warn('Could not parse', fileName, e);
               }
             }
           }
+          // Sort by date descending (most recent first)
+          matches.sort((a, b) => {
+            if (a.date === 'Unknown date') return 1;
+            if (b.date === 'Unknown date') return -1;
+            return b.date.localeCompare(a.date);
+          });
           setRecentMatches(matches);
         } catch (err) {
           console.error('Load error:', err);
@@ -1523,7 +1528,7 @@
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
 
-        // Draw players (avatars) – same as before
+        // Draw players (avatars)
         var batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
         var strikerName = currentDelivery ? currentDelivery.striker : null;
         var strikerImage = strikerName ? playerImageCache.get(strikerName) : null;
@@ -1716,7 +1721,6 @@
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
-      // Recording functions same as before (unchanged)
       var startRecording = function() {
         if (!canvasRef.current) {
           alert('Canvas not ready');
