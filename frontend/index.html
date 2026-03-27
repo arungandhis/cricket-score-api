@@ -721,10 +721,9 @@
 
     function getPlayerImageUrl(fullName) {
       if (!fullName) return null;
-      // Use ui-avatars.com to generate a nice avatar with initials
       const nameParts = fullName.split(' ');
       const initials = nameParts.map(p => p.charAt(0).toUpperCase()).join('');
-      const backgroundColor = '0D8ABC'; // teal-ish
+      const backgroundColor = '0D8ABC';
       const textColor = 'FFFFFF';
       return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=${textColor}&size=80&bold=true&length=2`;
     }
@@ -737,7 +736,7 @@
       }
       return new Promise((resolve) => {
         const img = new Image();
-        img.crossOrigin = "Anonymous"; // Needed if we ever use canvas to draw on canvas, not essential
+        img.crossOrigin = "Anonymous";
         img.onload = () => {
           playerImageCache.set(fullName, img);
           resolve(img);
@@ -761,9 +760,6 @@
       return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
-        // Use a free, high‑res cricket stadium image (Pexels)
-        // This image is from Pexels and allows hotlinking with proper attribution.
-        // If it fails, we fallback to a gradient.
         img.src = 'https://images.pexels.com/photos/163452/cricket-stadium-sport-field-163452.jpeg?auto=compress&cs=tinysrgb&w=1200';
         img.onload = () => {
           stadiumImage = img;
@@ -902,7 +898,6 @@
         setLoadingRecent(true);
         setError(null);
         try {
-          // Use a CORS proxy that supports binary files
           const proxyUrl = 'https://api.cors.lol/?url=';
           const targetUrl = 'https://cricsheet.org/downloads/recently_added_7_male_json.zip';
           const response = await fetch(proxyUrl + encodeURIComponent(targetUrl));
@@ -1097,14 +1092,10 @@
       React.useEffect(() => {
         async function preloadAllPlayers() {
           const playerNamesSet = new Set();
-          // Collect all player names from both innings
           for (let i = 0; i < inningsData.length; i++) {
             const innings = inningsData[i];
-            // Batsmen
             Object.keys(innings.battingStats).forEach(name => playerNamesSet.add(name));
-            // Bowlers
             Object.keys(innings.bowlingStats).forEach(name => playerNamesSet.add(name));
-            // Also include from deliveries (strikers, non-strikers, wicket players)
             innings.deliveries.forEach(d => {
               if (d.striker) playerNamesSet.add(d.striker);
               if (d.nonStriker) playerNamesSet.add(d.nonStriker);
@@ -1517,7 +1508,6 @@
         // 1. Draw stadium background (if loaded, else fallback gradient)
         if (stadiumImageLoaded && stadiumImage) {
           ctx.drawImage(stadiumImage, 0, 0, w, h);
-          // Darken the background for better contrast with pitch elements
           ctx.fillStyle = 'rgba(0,0,0,0.5)';
           ctx.fillRect(0, 0, w, h);
         } else {
@@ -1528,7 +1518,7 @@
           ctx.fillRect(0, 0, w, h);
         }
 
-        // 2. Draw the pitch area (semi-transparent to let background show through)
+        // 2. Draw the pitch area
         var pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
         ctx.fillStyle = 'rgba(44,94,46,0.7)';
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
@@ -1837,7 +1827,7 @@
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left column */}
             <div className="space-y-6">
-              {/* Match Information (new) */}
+              {/* Match Information */}
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <h3 className="text-lg font-semibold text-teal-300 mb-3">Match Information</h3>
                 <div className="space-y-2 text-sm">
@@ -2033,15 +2023,35 @@
       );
     };
 
-    try {
-      ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(ErrorBoundary, null, React.createElement(App)));
-    } catch (err) {
-      var errDiv = document.getElementById('error-message');
-      if (errDiv) {
-        errDiv.style.display = 'block';
-        errDiv.className = 'error-bar';
-        errDiv.innerHTML = '⚠️ ' + err.message;
+    // --------------------------------------------------------------
+    // Initialize app with fallback for older browsers
+    // --------------------------------------------------------------
+    function initApp() {
+      try {
+        var rootElement = document.getElementById('root');
+        if (rootElement) {
+          // Use ReactDOM.render if createRoot is not available (e.g., older mobile browsers)
+          if (typeof ReactDOM.createRoot === 'function') {
+            ReactDOM.createRoot(rootElement).render(React.createElement(ErrorBoundary, null, React.createElement(App)));
+          } else {
+            ReactDOM.render(React.createElement(ErrorBoundary, null, React.createElement(App)), rootElement);
+          }
+        }
+      } catch (err) {
+        var errDiv = document.getElementById('error-message');
+        if (errDiv) {
+          errDiv.style.display = 'block';
+          errDiv.className = 'error-bar';
+          errDiv.innerHTML = '⚠️ ' + err.message;
+        }
       }
+    }
+
+    // Wait for DOM to be ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+      initApp();
     }
   </script>
 </body>
