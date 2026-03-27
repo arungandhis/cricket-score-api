@@ -60,6 +60,7 @@
     // Realistic commentary generator
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
+      // ... (same as previous)
       var runs = delivery.runs;
       var isWicket = delivery.wicket;
       var wicketKind = delivery.wicketKind;
@@ -119,7 +120,7 @@
     };
 
     // --------------------------------------------------------------
-    // Backend URL (must be your multi‑provider backend)
+    // Backend URL
     // --------------------------------------------------------------
     const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com';
 
@@ -575,7 +576,7 @@
     }
 
     // --------------------------------------------------------------
-    // Match parsing and simulation
+    // Match parsing and simulation (same as before)
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -767,30 +768,6 @@
           resolve(null);
         };
         img.src = getPlayerImageUrl(fullName);
-      });
-    }
-
-    // --------------------------------------------------------------
-    // Stadium background image loading (reliable free image)
-    // --------------------------------------------------------------
-    let stadiumImage = null;
-    let stadiumImageLoaded = false;
-
-    function loadStadiumBackground() {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        img.src = 'https://cdn.pixabay.com/photo/2016/01/20/18/41/cricket-1151401_1280.jpg';
-        img.onload = () => {
-          stadiumImage = img;
-          stadiumImageLoaded = true;
-          resolve(true);
-        };
-        img.onerror = () => {
-          console.warn('Could not load stadium background, using fallback.');
-          stadiumImageLoaded = false;
-          resolve(false);
-        };
       });
     }
 
@@ -1017,7 +994,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component (full version with all features)
+    // MatchSimulator component (full version with stadium gradient)
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1038,7 +1015,6 @@
       var [firstInningsStats, setFirstInningsStats] = React.useState(null);
       var [matchResult, setMatchResult] = React.useState(null);
       var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
-      var [backgroundReady, setBackgroundReady] = React.useState(false);
 
       var startGuardRef = React.useRef(false);
       var introPlayedRef = React.useRef(false);
@@ -1075,11 +1051,6 @@
       // Load system voices
       React.useEffect(function() {
         loadSystemVoices();
-      }, []);
-
-      // Load stadium background
-      React.useEffect(() => {
-        loadStadiumBackground().then(() => setBackgroundReady(true));
       }, []);
 
       // Load audio and set up UI
@@ -1519,20 +1490,25 @@
         var ctx = canvas.getContext('2d');
         var w = canvas.width, h = canvas.height;
 
-        if (stadiumImageLoaded && stadiumImage) {
-          ctx.drawImage(stadiumImage, 0, 0, w, h);
-          ctx.fillStyle = 'rgba(0,0,0,0.5)';
-          ctx.fillRect(0, 0, w, h);
-        } else {
-          var grad = ctx.createLinearGradient(0, 0, 0, h);
-          grad.addColorStop(0, '#0b2b26');
-          grad.addColorStop(1, '#051a17');
-          ctx.fillStyle = grad;
-          ctx.fillRect(0, 0, w, h);
+        // 1. Draw stadium-like gradient (grass)
+        var grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, '#2c5e2e');
+        grad.addColorStop(0.5, '#1e3a1e');
+        grad.addColorStop(1, '#0a2f0a');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+        
+        // Add simple crowd pattern (small dots)
+        ctx.fillStyle = '#3e6b3e';
+        for (let i = 0; i < 200; i++) {
+          ctx.beginPath();
+          ctx.arc(Math.random() * w, Math.random() * h, 2, 0, Math.PI * 2);
+          ctx.fill();
         }
 
+        // 2. Draw pitch area (green rectangle)
         var pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
-        ctx.fillStyle = 'rgba(44,94,46,0.7)';
+        ctx.fillStyle = '#2a7a2a';
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
         ctx.beginPath();
         ctx.strokeStyle = '#fff5e0';
@@ -1547,6 +1523,7 @@
         ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
         ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
 
+        // Draw players (avatars) – same as before
         var batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
         var strikerName = currentDelivery ? currentDelivery.striker : null;
         var strikerImage = strikerName ? playerImageCache.get(strikerName) : null;
@@ -1635,6 +1612,7 @@
           ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 15, nonStrikerY + 28);
         }
 
+        // Fielders (moving dots)
         var fielders = [
           { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
         ];
@@ -1648,6 +1626,7 @@
           ctx.fill();
         });
 
+        // Broadcast-style score overlay
         ctx.shadowBlur = 0;
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
         ctx.fillRect(0, 0, w, 70);
@@ -1733,10 +1712,11 @@
           }
           ctx.restore();
         }
-      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, backgroundReady]);
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache]);
 
-      React.useEffect(function() { drawCanvas(); }, [drawCanvas, backgroundReady]);
+      React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
+      // Recording functions same as before (unchanged)
       var startRecording = function() {
         if (!canvasRef.current) {
           alert('Canvas not ready');
