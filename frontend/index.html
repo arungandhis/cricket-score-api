@@ -999,7 +999,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component with professional bottom scoreboard
+    // MatchSimulator component with scoreboard matching the image style
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1691,7 +1691,7 @@
           ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 15, nonStrikerY + 28);
         }
 
-        // Fielders
+        // Fielders (moving dots)
         var fielders = [
           { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
         ];
@@ -1705,107 +1705,103 @@
           ctx.fill();
         });
 
-        // --- TOP SCORE BAR ---
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
-        ctx.fillRect(0, 0, w, 65);
+        // --- TOP SCOREBOARD (like the image) ---
+        var topBarHeight = 65;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, w, topBarHeight);
+        
+        // Team names
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 24px "Inter", sans-serif';
-        ctx.fillText(matchInfo.team1, 15, 42);
-        ctx.fillText(matchInfo.team2, w - 15 - ctx.measureText(matchInfo.team2).width, 42);
+        ctx.font = 'bold 18px "Inter", sans-serif';
+        ctx.fillText(matchInfo.team1, 12, 28);
+        ctx.fillText(matchInfo.team2, w - 12 - ctx.measureText(matchInfo.team2).width, 28);
         
+        // Score and overs
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 28px monospace';
+        ctx.font = 'bold 26px monospace';
         var scoreText = matchState.totalRuns + '/' + matchState.wickets;
-        ctx.fillText(scoreText, w/2 - 50, 42);
+        ctx.fillText(scoreText, w/2 - 60, 40);
         ctx.fillStyle = '#ccc';
-        ctx.font = '14px monospace';
-        ctx.fillText('(' + matchState.overs + ')', w/2 + ctx.measureText(scoreText).width - 45, 38);
-        if (currentInningsIdx === 1) {
-          ctx.fillStyle = '#ffaa66';
-          ctx.font = 'bold 16px monospace';
-          ctx.fillText('Target: ' + target, w/2 + 70, 42);
-        }
-
-        // --- BOTTOM SCOREBOARD (batsman, non-striker, bowler, last ball) ---
-        var bottomY = h - 110;
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
-        ctx.fillRect(0, bottomY, w, 100);
+        ctx.font = '16px monospace';
+        ctx.fillText('(' + matchState.overs + ')', w/2 + ctx.measureText(scoreText).width - 70, 36);
         
-        // Striker (left side)
+        // Powerplay indicator (P1)
+        ctx.fillStyle = '#ffaa66';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText('P1', w/2 + 30, 48);
+        
+        // Toss info (if needed)
+        ctx.font = '10px monospace';
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(matchInfo.toss.substring(0, 35), 12, 55);
+
+        // --- BOTTOM SCOREBOARD (like the image) ---
+        var bottomBarY = h - 95;
+        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        ctx.fillRect(0, bottomBarY, w, 90);
+        
+        // Striker row (left side)
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px "Inter"';
-        ctx.fillText('🏏 ' + (currentDelivery ? getLastName(currentDelivery.striker) : '-'), 15, bottomY + 25);
-        ctx.font = '12px monospace';
+        var strikerShort = currentDelivery ? getLastName(currentDelivery.striker) : '-';
+        ctx.fillText(strikerShort, 15, bottomBarY + 25);
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 20px monospace';
         var strikerRuns = '0';
         var strikerBalls = '0';
-        var strikerSr = '0.0';
         if (currentDelivery && cumulativeStats.battingStats[currentDelivery.striker]) {
           var s = cumulativeStats.battingStats[currentDelivery.striker];
           strikerRuns = s.runs;
           strikerBalls = s.balls;
-          strikerSr = (s.runs / s.balls * 100).toFixed(1);
         }
-        ctx.fillStyle = '#facc15';
-        ctx.fillText(strikerRuns + ' (' + strikerBalls + ')', 15, bottomY + 48);
-        ctx.fillStyle = '#ccc';
-        ctx.fillText('SR ' + strikerSr, 15, bottomY + 68);
+        ctx.fillText(strikerRuns + '  ' + strikerBalls, 15, bottomBarY + 55);
         
-        // Non-striker
+        // Bowler row (right side)
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px "Inter"';
-        ctx.fillText('🔄 ' + (currentDelivery ? getLastName(currentDelivery.nonStriker) : '-'), 15 + 160, bottomY + 25);
-        ctx.font = '12px monospace';
+        var bowlerShort = currentDelivery ? getLastName(currentDelivery.bowler) : '-';
+        var bowlerStats = '';
+        if (currentDelivery && cumulativeStats.bowlingStats[currentDelivery.bowler]) {
+          var b = cumulativeStats.bowlingStats[currentDelivery.bowler];
+          bowlerStats = b.overs + ' - ' + b.runs + ' - ' + b.wickets;
+        } else {
+          bowlerStats = '0.0 - 0 - 0';
+        }
+        ctx.fillText(bowlerShort, w - 15 - ctx.measureText(bowlerShort).width, bottomBarY + 25);
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText(bowlerStats, w - 15 - ctx.measureText(bowlerStats).width, bottomBarY + 55);
+        
+        // Non-striker row (left side, below striker)
+        ctx.fillStyle = '#ccc';
+        ctx.font = '12px "Inter"';
+        var nonStrikerShort = currentDelivery ? getLastName(currentDelivery.nonStriker) : '-';
+        ctx.fillText(nonStrikerShort, 15, bottomBarY + 78);
         var nonStrikerRuns = '0';
         var nonStrikerBalls = '0';
-        var nonStrikerSr = '0.0';
         if (currentDelivery && cumulativeStats.battingStats[currentDelivery.nonStriker]) {
           var ns = cumulativeStats.battingStats[currentDelivery.nonStriker];
           nonStrikerRuns = ns.runs;
           nonStrikerBalls = ns.balls;
-          nonStrikerSr = (ns.runs / ns.balls * 100).toFixed(1);
         }
         ctx.fillStyle = '#facc15';
-        ctx.fillText(nonStrikerRuns + ' (' + nonStrikerBalls + ')', 15 + 160, bottomY + 48);
-        ctx.fillStyle = '#ccc';
-        ctx.fillText('SR ' + nonStrikerSr, 15 + 160, bottomY + 68);
-        
-        // Bowler (right side)
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px "Inter"';
-        ctx.fillText('⚡ ' + (currentDelivery ? getLastName(currentDelivery.bowler) : '-'), w - 180, bottomY + 25);
         ctx.font = '12px monospace';
-        var bowlerOvers = '0.0';
-        var bowlerRuns = '0';
-        var bowlerWickets = '0';
-        var bowlerEcon = '0.0';
-        if (currentDelivery && cumulativeStats.bowlingStats[currentDelivery.bowler]) {
-          var b = cumulativeStats.bowlingStats[currentDelivery.bowler];
-          bowlerOvers = b.overs;
-          bowlerRuns = b.runs;
-          bowlerWickets = b.wickets;
-          bowlerEcon = (bowlerRuns / parseFloat(bowlerOvers)).toFixed(2);
-        }
-        ctx.fillStyle = '#facc15';
-        ctx.fillText(bowlerOvers + ' - ' + bowlerRuns + ' - ' + bowlerWickets, w - 180, bottomY + 48);
-        ctx.fillStyle = '#ccc';
-        ctx.fillText('Econ ' + bowlerEcon, w - 180, bottomY + 68);
+        ctx.fillText(nonStrikerRuns + '  ' + nonStrikerBalls, 15 + 100, bottomBarY + 78);
         
-        // Last ball indicator (center bottom)
+        // Last ball result (right side)
         if (lastBallResult.current) {
           ctx.fillStyle = '#facc15';
           ctx.font = 'bold 14px monospace';
-          var lastBallText = 'Last ball: ' + lastBallResult.current;
-          ctx.fillText(lastBallText, w/2 - 40, bottomY + 85);
+          ctx.fillText('Last ball: ' + lastBallResult.current, w - 15 - ctx.measureText('Last ball: ' + lastBallResult.current).width, bottomBarY + 78);
         }
-        
+
         // Commentary ticker (just above bottom bar)
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(0, bottomY - 28, w, 28);
+        ctx.fillRect(0, bottomBarY - 28, w, 28);
         ctx.font = 'italic 10px "JetBrains Mono"';
         ctx.fillStyle = '#e2e8f0';
-        ctx.fillText("🎙️ " + lastComment.slice(0, 120), 10, bottomY - 8);
+        ctx.fillText("🎙️ " + lastComment.slice(0, 120), 10, bottomBarY - 8);
 
         // Effect animation (SIX, FOUR, WICKET) around batsman
         if (effect) {
