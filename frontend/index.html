@@ -999,7 +999,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component with powerplay rules
+    // MatchSimulator component with powerplay rules and fixed result
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1311,8 +1311,16 @@
 
         var secondTotal = matchState.totalRuns;
         var secondWickets = matchState.wickets;
+        var firstTotal = firstInningsStats.total;
         var winner = secondTotal >= target ? matchInfo.team2 : matchInfo.team1;
-        var margin = secondTotal >= target ? (target - secondTotal) + " wickets" : (target - secondTotal - 1) + " runs";
+        var margin;
+        if (secondTotal >= target) {
+          // Chasing team wins – margin in wickets
+          margin = (10 - secondWickets) + " wickets";
+        } else {
+          // Batting first wins – margin in runs
+          margin = (firstTotal - secondTotal) + " runs";
+        }
         var resultText = "Match result: " + winner + " wins by " + margin + ". ";
         var firstTopScorer = getTopScorer(firstInningsStats.battingStats);
         var firstBestBowler = getBestBowler(firstInningsStats.bowlingStats);
