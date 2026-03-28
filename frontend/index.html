@@ -57,6 +57,37 @@
     };
 
     // --------------------------------------------------------------
+    // Flag emoji helper
+    // --------------------------------------------------------------
+    const getFlagEmoji = (teamName) => {
+      const countryMap = {
+        'India': '🇮🇳',
+        'Australia': '🇦🇺',
+        'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+        'South Africa': '🇿🇦',
+        'New Zealand': '🇳🇿',
+        'West Indies': '🇯🇲',
+        'Pakistan': '🇵🇰',
+        'Sri Lanka': '🇱🇰',
+        'Bangladesh': '🇧🇩',
+        'Afghanistan': '🇦🇫',
+        'Zimbabwe': '🇿🇼',
+        'Ireland': '🇮🇪',
+        'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+        'Netherlands': '🇳🇱',
+        'UAE': '🇦🇪',
+        'Nepal': '🇳🇵',
+        'Oman': '🇴🇲',
+        'USA': '🇺🇸'
+      };
+      if (countryMap[teamName]) return countryMap[teamName];
+      for (let key in countryMap) {
+        if (teamName.includes(key)) return countryMap[key];
+      }
+      return '🏆';
+    };
+
+    // --------------------------------------------------------------
     // Realistic commentary generator
     // --------------------------------------------------------------
     const generateRealisticCommentary = (delivery, inningsIdx, target) => {
@@ -999,7 +1030,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component with powerplay rules and fixed result
+    // MatchSimulator component with flags in canvas
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1071,7 +1102,7 @@
           if (oversNum < 40) return "P2";
           return "P3";
         }
-        return ""; // default no indicator
+        return "";
       };
 
       // Helper to generate over summary
@@ -1315,10 +1346,8 @@
         var winner = secondTotal >= target ? matchInfo.team2 : matchInfo.team1;
         var margin;
         if (secondTotal >= target) {
-          // Chasing team wins – margin in wickets
           margin = (10 - secondWickets) + " wickets";
         } else {
-          // Batting first wins – margin in runs
           margin = (firstTotal - secondTotal) + " runs";
         }
         var resultText = "Match result: " + winner + " wins by " + margin + ". ";
@@ -1451,7 +1480,7 @@
           setTarget(targetScore);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
-          lastOverReported.current = -1; // reset for second innings
+          lastOverReported.current = -1;
           if (!muteAudio) speakWithCallback("End of first innings. " + firstTeam + " scored " + firstTotal + " for " + firstWickets + ". " + inningsData[1].team + " needs " + targetScore + " runs to win. Press start to begin the chase.", 'normal', function() {});
           return;
         }
@@ -1727,43 +1756,45 @@
           ctx.fill();
         });
 
-        // --- TOP SCOREBOARD with powerplay ---
-        var topBarHeight = 65;
+        // --- TOP SCOREBOARD with flags ---
+        var topBarHeight = 70;
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
         ctx.fillRect(0, 0, w, topBarHeight);
         
-        // Team names
+        // Team names with flags
+        var flag1 = getFlagEmoji(matchInfo.team1);
+        var flag2 = getFlagEmoji(matchInfo.team2);
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 18px "Inter", sans-serif';
-        ctx.fillText(matchInfo.team1, 12, 28);
-        ctx.fillText(matchInfo.team2, w - 12 - ctx.measureText(matchInfo.team2).width, 28);
+        ctx.fillText(flag1 + ' ' + matchInfo.team1, 12, 32);
+        ctx.fillText(matchInfo.team2 + ' ' + flag2, w - 12 - ctx.measureText(matchInfo.team2 + ' ' + flag2).width, 32);
         
         // Score and overs
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 26px monospace';
         var scoreText = matchState.totalRuns + '/' + matchState.wickets;
         var scoreX = w/2 - 60;
-        ctx.fillText(scoreText, scoreX, 40);
+        ctx.fillText(scoreText, scoreX, 45);
         
         ctx.fillStyle = '#ccc';
         ctx.font = '16px monospace';
         var oversText = '(' + matchState.overs + ')';
-        ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 8, 36);
+        ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 8, 41);
         
         // Powerplay indicator
         var ppText = getPowerplayText(matchState.overs);
         if (ppText) {
           ctx.fillStyle = '#ffaa66';
           ctx.font = 'bold 14px monospace';
-          ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 20, 40);
+          ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 20, 45);
         }
         
-        // Toss info (if needed)
+        // Toss info (smaller)
         ctx.font = '10px monospace';
         ctx.fillStyle = '#aaa';
-        ctx.fillText(matchInfo.toss.substring(0, 35), 12, 55);
+        ctx.fillText(matchInfo.toss.substring(0, 35), 12, 62);
 
-        // --- BOTTOM SCOREBOARD (like the image) ---
+        // --- BOTTOM SCOREBOARD ---
         var bottomBarY = h - 95;
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fillRect(0, bottomBarY, w, 90);
@@ -1831,7 +1862,7 @@
         ctx.fillStyle = '#e2e8f0';
         ctx.fillText("🎙️ " + lastComment.slice(0, 120), 10, bottomBarY - 8);
 
-        // Effect animation (SIX, FOUR, WICKET) around batsman
+        // Effect animation
         if (effect) {
           var elapsed = (Date.now() - effect.startTime) / 1000;
           var alpha = Math.max(0, 1 - elapsed);
@@ -1958,7 +1989,7 @@
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <h3 className="text-lg font-semibold text-teal-300 mb-3">Match Information</h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Match:</span><span className="font-semibold text-white">{matchInfo.teams}</span></div>
+                  <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Match:</span><span className="font-semibold text-white">{getFlagEmoji(matchInfo.team1)} {matchInfo.team1} vs {matchInfo.team2} {getFlagEmoji(matchInfo.team2)}</span></div>
                   <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Date:</span><span>{matchInfo.date}</span></div>
                   <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Venue:</span><span>{matchInfo.venue}</span></div>
                   <div className="flex justify-between border-b border-gray-700 pb-1"><span className="text-gray-400">Toss:</span><span>{matchInfo.toss}</span></div>
