@@ -119,7 +119,7 @@
     };
 
     // --------------------------------------------------------------
-    // Backend URL (must be your multi‑provider backend)
+    // Backend URL
     // --------------------------------------------------------------
     const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com';
 
@@ -999,7 +999,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component (full version with stadium gradient)
+    // MatchSimulator component (full version with after‑over summary)
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1020,6 +1020,7 @@
       var [firstInningsStats, setFirstInningsStats] = React.useState(null);
       var [matchResult, setMatchResult] = React.useState(null);
       var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
+      var lastOverReported = React.useRef(-1);
 
       var startGuardRef = React.useRef(false);
       var introPlayedRef = React.useRef(false);
@@ -1052,6 +1053,46 @@
 
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
+
+      // Helper to generate over summary
+      var generateOverSummary = function() {
+        var oversNum = parseFloat(matchState.overs);
+        var balls = Math.floor(oversNum) * 6 + (oversNum % 1) * 10;
+        if (balls % 6 !== 0) return; // only at the end of an over
+        var currentOver = Math.floor(balls / 6);
+        if (lastOverReported.current === currentOver) return;
+        lastOverReported.current = currentOver;
+
+        var currentScore = matchState.totalRuns;
+        var currentWickets = matchState.wickets;
+        var currentOvers = matchState.overs;
+        var runRate = (currentScore / parseFloat(currentOvers)).toFixed(2);
+        var summary = `🏏 End of over ${currentOver}. ${matchInfo.team1} ${currentScore}/${currentWickets} (${currentOvers} overs). Run rate: ${runRate}. `;
+        
+        if (currentInningsIdx === 0) {
+          var projected = (runRate * maxOvers).toFixed(0);
+          summary += `Projected total: ${projected}. `;
+        } else {
+          var requiredRate = (target - currentScore) / (maxOvers - parseFloat(currentOvers));
+          summary += `Need ${target - currentScore} runs from ${(maxOvers - parseFloat(currentOvers)).toFixed(1)} overs. Required rate: ${requiredRate.toFixed(2)}. `;
+        }
+
+        var battingStats = cumulativeStats.battingStats;
+        var topScorer = getTopScorer(battingStats);
+        if (topScorer.name) {
+          var sr = (topScorer.runs / topScorer.balls * 100).toFixed(1);
+          summary += `Top bat: ${getLastName(topScorer.name)} ${topScorer.runs} (${topScorer.balls}b, ${topScorer.fours}4s, ${topScorer.sixes}6s, SR ${sr}). `;
+        }
+
+        var bowlingStats = cumulativeStats.bowlingStats;
+        var bestBowler = getBestBowler(bowlingStats);
+        if (bestBowler.name && bestBowler.wickets > 0) {
+          summary += `Best bowler: ${getLastName(bestBowler.name)} ${bestBowler.wickets}/${bestBowler.runs} (${bestBowler.overs} overs, econ ${(bestBowler.runs / parseFloat(bestBowler.overs)).toFixed(2)}).`;
+        }
+
+        addSummaryEntry(summary);
+        if (!muteAudio) speakWithCallback(summary, 'normal', function() {});
+      };
 
       // Load system voices
       React.useEffect(function() {
@@ -1293,6 +1334,19 @@
         }
       }, [isMatchFinished, firstInningsStats]);
 
+      // Use cumulative stats for summary
+      var cumulativeStats = React.useMemo(function() {
+        if (currentBallIdx < 0) return { battingStats: {}, bowlingStats: {} };
+        return computeCumulativeStats(deliveries, currentBallIdx);
+      }, [currentBallIdx, deliveries]);
+
+      // Trigger over summary after ball if over completed
+      React.useEffect(() => {
+        if (currentBallIdx >= 0 && !isMatchFinished && !isInningsFinished) {
+          generateOverSummary();
+        }
+      }, [currentBallIdx]);
+
       var addCommentaryEntry = function(delivery, idx) {
         var commentaryText = generateRealisticCommentary(delivery, currentInningsIdx, target);
         var ballDesc = "Innings " + (currentInningsIdx+1) + " • Over " + delivery.over + "." + delivery.ball + " • " + delivery.striker + " • " + delivery.bowler + " → " + commentaryText + (delivery.wicket ? " 🚨 WICKET!" : "");
@@ -1363,6 +1417,7 @@
           setTarget(targetScore);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
+          lastOverReported.current = -1; // reset for second innings
           if (!muteAudio) speakWithCallback("End of first innings. " + firstTeam + " scored " + firstTotal + " for " + firstWickets + ". " + inningsData[1].team + " needs " + targetScore + " runs to win. Press start to begin the chase.", 'normal', function() {});
           return;
         }
@@ -1430,6 +1485,7 @@
         setFirstInningsStats(null);
         setTarget(initialTarget);
         setMatchResult(null);
+        lastOverReported.current = -1;
         if (mediaRecorderRef.current && isRecording) {
           mediaRecorderRef.current.stop();
           setIsRecording(false);
@@ -1467,6 +1523,7 @@
           setTarget(targetScore);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
+          lastOverReported.current = -1;
           setTimeout(function() { startMatch(); }, 50);
           return;
         }
