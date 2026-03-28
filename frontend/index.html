@@ -999,7 +999,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component with scoreboard matching the image style
+    // MatchSimulator component with powerplay rules
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1021,7 +1021,7 @@
       var [matchResult, setMatchResult] = React.useState(null);
       var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
       var lastOverReported = React.useRef(-1);
-      var lastBallResult = React.useRef(null); // store last ball result for bottom bar
+      var lastBallResult = React.useRef(null);
 
       var startGuardRef = React.useRef(false);
       var introPlayedRef = React.useRef(false);
@@ -1059,6 +1059,20 @@
 
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
+
+      // Helper to get powerplay text based on overs and match type
+      var getPowerplayText = function(oversDecimal) {
+        var oversNum = parseFloat(oversDecimal);
+        if (maxOvers === 20) { // T20
+          if (oversNum < 6) return "P1";
+          return "";
+        } else if (maxOvers === 50) { // ODI
+          if (oversNum < 10) return "P1";
+          if (oversNum < 40) return "P2";
+          return "P3";
+        }
+        return ""; // default no indicator
+      };
 
       // Helper to generate over summary
       var generateOverSummary = function() {
@@ -1705,7 +1719,7 @@
           ctx.fill();
         });
 
-        // --- TOP SCOREBOARD (like the image) ---
+        // --- TOP SCOREBOARD with powerplay ---
         var topBarHeight = 65;
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
         ctx.fillRect(0, 0, w, topBarHeight);
@@ -1720,15 +1734,21 @@
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 26px monospace';
         var scoreText = matchState.totalRuns + '/' + matchState.wickets;
-        ctx.fillText(scoreText, w/2 - 60, 40);
+        var scoreX = w/2 - 60;
+        ctx.fillText(scoreText, scoreX, 40);
+        
         ctx.fillStyle = '#ccc';
         ctx.font = '16px monospace';
-        ctx.fillText('(' + matchState.overs + ')', w/2 + ctx.measureText(scoreText).width - 70, 36);
+        var oversText = '(' + matchState.overs + ')';
+        ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 8, 36);
         
-        // Powerplay indicator (P1)
-        ctx.fillStyle = '#ffaa66';
-        ctx.font = 'bold 14px monospace';
-        ctx.fillText('P1', w/2 + 30, 48);
+        // Powerplay indicator
+        var ppText = getPowerplayText(matchState.overs);
+        if (ppText) {
+          ctx.fillStyle = '#ffaa66';
+          ctx.font = 'bold 14px monospace';
+          ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 20, 40);
+        }
         
         // Toss info (if needed)
         ctx.font = '10px monospace';
