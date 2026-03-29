@@ -944,7 +944,6 @@
               }
             }
           }
-          // Sort by date descending (most recent first)
           matches.sort((a, b) => {
             if (a.date === 'Unknown date') return 1;
             if (b.date === 'Unknown date') return -1;
@@ -1030,7 +1029,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component with flags in canvas
+    // MatchSimulator component with scorecard overlay after each over
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1053,6 +1052,15 @@
       var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
       var lastOverReported = React.useRef(-1);
       var lastBallResult = React.useRef(null);
+      
+      // Scorecard overlay state
+      var [showScorecard, setShowScorecard] = React.useState(false);
+      var [scorecardData, setScorecardData] = React.useState(null);
+      var scorecardTimeout = React.useRef(null);
+      
+      // Track fall of wickets
+      var [wicketsFallen, setWicketsFallen] = React.useState([]);
+      var lastWicketScore = React.useRef(-1);
 
       var startGuardRef = React.useRef(false);
       var introPlayedRef = React.useRef(false);
@@ -1094,10 +1102,10 @@
       // Helper to get powerplay text based on overs and match type
       var getPowerplayText = function(oversDecimal) {
         var oversNum = parseFloat(oversDecimal);
-        if (maxOvers === 20) { // T20
+        if (maxOvers === 20) {
           if (oversNum < 6) return "P1";
           return "";
-        } else if (maxOvers === 50) { // ODI
+        } else if (maxOvers === 50) {
           if (oversNum < 10) return "P1";
           if (oversNum < 40) return "P2";
           return "P3";
@@ -1105,7 +1113,46 @@
         return "";
       };
 
-      // Helper to generate over summary
+      // Helper to build scorecard data
+      var buildScorecardData = function() {
+        var bowlingList = [];
+        for (var bowler in cumulativeStats.bowlingStats) {
+          var b = cumulativeStats.bowlingStats[bowler];
+          bowlingList.push({
+            name: getLastName(bowler),
+            overs: b.overs,
+            maidens: 0, // we'll leave as 0 for simplicity
+            runs: b.runs,
+            wickets: b.wickets,
+            econ: (b.runs / parseFloat(b.overs)).toFixed(2)
+          });
+        }
+        // sort by wickets desc, then runs asc
+        bowlingList.sort((a, b) => b.wickets - a.wickets || a.runs - b.runs);
+        
+        return {
+          tournament: matchInfo.tournament,
+          team: currentInnings.team,
+          totalScore: matchState.totalRuns,
+          wickets: matchState.wickets,
+          overs: matchState.overs,
+          bowlingStats: bowlingList,
+          fallOfWickets: [...wicketsFallen]
+        };
+      };
+
+      // Show scorecard overlay for 5 seconds
+      var showScorecardOverlay = function() {
+        if (scorecardTimeout.current) clearTimeout(scorecardTimeout.current);
+        var data = buildScorecardData();
+        setScorecardData(data);
+        setShowScorecard(true);
+        scorecardTimeout.current = setTimeout(() => {
+          setShowScorecard(false);
+        }, 5000);
+      };
+
+      // Helper to generate over summary and show scorecard
       var generateOverSummary = function() {
         var oversNum = parseFloat(matchState.overs);
         var balls = Math.floor(oversNum) * 6 + (oversNum % 1) * 10;
@@ -1143,7 +1190,30 @@
 
         addSummaryEntry(summary);
         if (!muteAudio) speakWithCallback(summary, 'normal', function() {});
+        
+        // Show scorecard overlay after each over
+        showScorecardOverlay();
       };
+
+      // Track wickets for fall of wickets
+      React.useEffect(() => {
+        if (currentBallIdx >= 0) {
+          var delivery = deliveries[currentBallIdx];
+          if (delivery && delivery.wicket && delivery.wicketPlayer) {
+            var currentScore = matchState.totalRuns;
+            if (currentScore !== lastWicketScore.current) {
+              lastWicketScore.current = currentScore;
+              setWicketsFallen(prev => [...prev, currentScore]);
+            }
+          }
+        }
+      }, [currentBallIdx, deliveries, matchState.totalRuns]);
+
+      // Reset wickets when innings changes
+      React.useEffect(() => {
+        setWicketsFallen([]);
+        lastWicketScore.current = -1;
+      }, [currentInningsIdx]);
 
       // Load system voices
       React.useEffect(function() {
@@ -1550,6 +1620,10 @@
         setMatchResult(null);
         lastOverReported.current = -1;
         lastBallResult.current = null;
+        setWicketsFallen([]);
+        lastWicketScore.current = -1;
+        if (scorecardTimeout.current) clearTimeout(scorecardTimeout.current);
+        setShowScorecard(false);
         if (mediaRecorderRef.current && isRecording) {
           mediaRecorderRef.current.stop();
           setIsRecording(false);
@@ -1609,6 +1683,74 @@
       };
 
       var pauseMatch = function() { setIsPlaying(false); };
+
+      // Function to draw scorecard overlay
+      var drawScorecardOverlay = function(ctx, w, h) {
+        if (!scorecardData) return;
+        // semi-transparent dark background
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillRect(0, 0, w, h);
+        
+        // Title
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 24px "Inter", sans-serif';
+        ctx.fillText(scorecardData.tournament, 20, 50);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 20px "Inter"';
+        ctx.fillText(scorecardData.team, 20, 90);
+        
+        // Score
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 32px monospace';
+        ctx.fillText(scorecardData.totalScore + '/' + scorecardData.wickets, 20, 140);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '16px monospace';
+        ctx.fillText('(' + scorecardData.overs + ' overs)', 20 + ctx.measureText(scorecardData.totalScore + '/' + scorecardData.wickets).width + 10, 135);
+        
+        // Bowling table header
+        var startY = 180;
+        var rowHeight = 30;
+        ctx.fillStyle = '#aaa';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText('Bowler', 20, startY);
+        ctx.fillText('O', 200, startY);
+        ctx.fillText('M', 260, startY);
+        ctx.fillText('R', 320, startY);
+        ctx.fillText('W', 380, startY);
+        ctx.fillText('Econ', 440, startY);
+        
+        ctx.strokeStyle = '#555';
+        ctx.beginPath();
+        ctx.moveTo(20, startY + 5);
+        ctx.lineTo(w - 20, startY + 5);
+        ctx.stroke();
+        
+        var y = startY + rowHeight;
+        scorecardData.bowlingStats.forEach(b => {
+          ctx.fillStyle = '#fff';
+          ctx.font = '12px monospace';
+          ctx.fillText(b.name, 20, y);
+          ctx.fillText(b.overs, 200, y);
+          ctx.fillText(b.maidens, 260, y);
+          ctx.fillText(b.runs, 320, y);
+          ctx.fillText(b.wickets, 380, y);
+          ctx.fillText(b.econ, 440, y);
+          y += rowHeight;
+          if (y > h - 150) return;
+        });
+        
+        // Fall of wickets
+        if (scorecardData.fallOfWickets.length > 0) {
+          var fowY = y + 20;
+          ctx.fillStyle = '#aaa';
+          ctx.font = 'bold 14px monospace';
+          ctx.fillText('Fall of Wickets', 20, fowY);
+          ctx.fillStyle = '#fff';
+          ctx.font = '12px monospace';
+          var fowText = scorecardData.fallOfWickets.map((s, i) => (i+1) + ': ' + s).join('  •  ');
+          ctx.fillText(fowText, 20, fowY + 25);
+        }
+      };
 
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
@@ -1761,7 +1903,6 @@
         ctx.fillStyle = 'rgba(0,0,0,0.75)';
         ctx.fillRect(0, 0, w, topBarHeight);
         
-        // Team names with flags
         var flag1 = getFlagEmoji(matchInfo.team1);
         var flag2 = getFlagEmoji(matchInfo.team2);
         ctx.fillStyle = '#fff';
@@ -1769,7 +1910,6 @@
         ctx.fillText(flag1 + ' ' + matchInfo.team1, 12, 32);
         ctx.fillText(matchInfo.team2 + ' ' + flag2, w - 12 - ctx.measureText(matchInfo.team2 + ' ' + flag2).width, 32);
         
-        // Score and overs
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 26px monospace';
         var scoreText = matchState.totalRuns + '/' + matchState.wickets;
@@ -1781,7 +1921,6 @@
         var oversText = '(' + matchState.overs + ')';
         ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 8, 41);
         
-        // Powerplay indicator
         var ppText = getPowerplayText(matchState.overs);
         if (ppText) {
           ctx.fillStyle = '#ffaa66';
@@ -1789,7 +1928,6 @@
           ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 20, 45);
         }
         
-        // Toss info (smaller)
         ctx.font = '10px monospace';
         ctx.fillStyle = '#aaa';
         ctx.fillText(matchInfo.toss.substring(0, 35), 12, 62);
@@ -1799,15 +1937,14 @@
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fillRect(0, bottomBarY, w, 90);
         
-        // Striker row (left side)
+        // Striker row
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px "Inter"';
         var strikerShort = currentDelivery ? getLastName(currentDelivery.striker) : '-';
         ctx.fillText(strikerShort, 15, bottomBarY + 25);
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 20px monospace';
-        var strikerRuns = '0';
-        var strikerBalls = '0';
+        var strikerRuns = '0', strikerBalls = '0';
         if (currentDelivery && cumulativeStats.battingStats[currentDelivery.striker]) {
           var s = cumulativeStats.battingStats[currentDelivery.striker];
           strikerRuns = s.runs;
@@ -1815,7 +1952,7 @@
         }
         ctx.fillText(strikerRuns + '  ' + strikerBalls, 15, bottomBarY + 55);
         
-        // Bowler row (right side)
+        // Bowler row
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px "Inter"';
         var bowlerShort = currentDelivery ? getLastName(currentDelivery.bowler) : '-';
@@ -1831,13 +1968,12 @@
         ctx.font = 'bold 16px monospace';
         ctx.fillText(bowlerStats, w - 15 - ctx.measureText(bowlerStats).width, bottomBarY + 55);
         
-        // Non-striker row (left side, below striker)
+        // Non-striker
         ctx.fillStyle = '#ccc';
         ctx.font = '12px "Inter"';
         var nonStrikerShort = currentDelivery ? getLastName(currentDelivery.nonStriker) : '-';
         ctx.fillText(nonStrikerShort, 15, bottomBarY + 78);
-        var nonStrikerRuns = '0';
-        var nonStrikerBalls = '0';
+        var nonStrikerRuns = '0', nonStrikerBalls = '0';
         if (currentDelivery && cumulativeStats.battingStats[currentDelivery.nonStriker]) {
           var ns = cumulativeStats.battingStats[currentDelivery.nonStriker];
           nonStrikerRuns = ns.runs;
@@ -1847,14 +1983,14 @@
         ctx.font = '12px monospace';
         ctx.fillText(nonStrikerRuns + '  ' + nonStrikerBalls, 15 + 100, bottomBarY + 78);
         
-        // Last ball result (right side)
+        // Last ball result
         if (lastBallResult.current) {
           ctx.fillStyle = '#facc15';
           ctx.font = 'bold 14px monospace';
           ctx.fillText('Last ball: ' + lastBallResult.current, w - 15 - ctx.measureText('Last ball: ' + lastBallResult.current).width, bottomBarY + 78);
         }
 
-        // Commentary ticker (just above bottom bar)
+        // Commentary ticker
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, bottomBarY - 28, w, 28);
@@ -1899,7 +2035,12 @@
           }
           ctx.restore();
         }
-      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, cumulativeStats, lastBallResult]);
+        
+        // Draw scorecard overlay if active
+        if (showScorecard && scorecardData) {
+          drawScorecardOverlay(ctx, w, h);
+        }
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, cumulativeStats, lastBallResult, showScorecard, scorecardData]);
 
       React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
 
