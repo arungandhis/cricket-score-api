@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -319,25 +320,34 @@
     }
 
     // --------------------------------------------------------------
-    // Multi‑provider TTS dispatcher
+    // Multi‑provider TTS dispatcher (with Azure)
     // --------------------------------------------------------------
     let storedPrimaryProvider = localStorage.getItem('primary_provider') || 'system';
     let storedElevenlabsKey = localStorage.getItem('elevenlabs_api_key') || '';
     let storedElevenlabsVoice = localStorage.getItem('elevenlabs_voice_id') || '21m00Tcm4TlvDq8ikWAM';
     let storedGoogleKey = localStorage.getItem('google_api_key') || '';
     let storedGoogleVoice = localStorage.getItem('google_voice_id') || 'en-GB-Wavenet-A';
+    let storedAzureKey = localStorage.getItem('azure_api_key') || '';
+    let storedAzureRegion = localStorage.getItem('azure_region') || 'eastus';
+    let storedAzureVoice = localStorage.getItem('azure_voice_id') || 'en-GB-SoniaNeural';
 
-    function updateTtsSettings(primary, elevenlabsKey, elevenlabsVoice, googleKey, googleVoice) {
+    function updateTtsSettings(primary, elevenlabsKey, elevenlabsVoice, googleKey, googleVoice, azureKey, azureRegion, azureVoice) {
       storedPrimaryProvider = primary;
       storedElevenlabsKey = elevenlabsKey;
       storedElevenlabsVoice = elevenlabsVoice;
       storedGoogleKey = googleKey;
       storedGoogleVoice = googleVoice;
+      storedAzureKey = azureKey;
+      storedAzureRegion = azureRegion;
+      storedAzureVoice = azureVoice;
       localStorage.setItem('primary_provider', primary);
       localStorage.setItem('elevenlabs_api_key', elevenlabsKey);
       localStorage.setItem('elevenlabs_voice_id', elevenlabsVoice);
       localStorage.setItem('google_api_key', googleKey);
       localStorage.setItem('google_voice_id', googleVoice);
+      localStorage.setItem('azure_api_key', azureKey);
+      localStorage.setItem('azure_region', azureRegion);
+      localStorage.setItem('azure_voice_id', azureVoice);
     }
 
     function speakWithCallback(text, style, onEnd) {
@@ -351,7 +361,8 @@
         return;
       }
 
-      let apiKey, voiceId, fallbackProvider, fallbackApiKey, fallbackVoiceId;
+      let apiKey, voiceId, region, fallbackProvider, fallbackApiKey, fallbackVoiceId, fallbackRegion;
+      
       if (storedPrimaryProvider === 'elevenlabs') {
         if (!storedElevenlabsKey) {
           systemFallback(text, style, onEnd);
@@ -359,10 +370,17 @@
         }
         apiKey = storedElevenlabsKey;
         voiceId = storedElevenlabsVoice;
+        region = null;
+        // Set fallback to Google or Azure
         if (storedGoogleKey) {
           fallbackProvider = 'google';
           fallbackApiKey = storedGoogleKey;
           fallbackVoiceId = storedGoogleVoice;
+        } else if (storedAzureKey) {
+          fallbackProvider = 'azure';
+          fallbackApiKey = storedAzureKey;
+          fallbackVoiceId = storedAzureVoice;
+          fallbackRegion = storedAzureRegion;
         } else {
           fallbackProvider = null;
         }
@@ -373,10 +391,35 @@
         }
         apiKey = storedGoogleKey;
         voiceId = storedGoogleVoice;
+        region = null;
         if (storedElevenlabsKey) {
           fallbackProvider = 'elevenlabs';
           fallbackApiKey = storedElevenlabsKey;
           fallbackVoiceId = storedElevenlabsVoice;
+        } else if (storedAzureKey) {
+          fallbackProvider = 'azure';
+          fallbackApiKey = storedAzureKey;
+          fallbackVoiceId = storedAzureVoice;
+          fallbackRegion = storedAzureRegion;
+        } else {
+          fallbackProvider = null;
+        }
+      } else if (storedPrimaryProvider === 'azure') {
+        if (!storedAzureKey) {
+          systemFallback(text, style, onEnd);
+          return;
+        }
+        apiKey = storedAzureKey;
+        voiceId = storedAzureVoice;
+        region = storedAzureRegion;
+        if (storedElevenlabsKey) {
+          fallbackProvider = 'elevenlabs';
+          fallbackApiKey = storedElevenlabsKey;
+          fallbackVoiceId = storedElevenlabsVoice;
+        } else if (storedGoogleKey) {
+          fallbackProvider = 'google';
+          fallbackApiKey = storedGoogleKey;
+          fallbackVoiceId = storedGoogleVoice;
         } else {
           fallbackProvider = null;
         }
@@ -394,9 +437,11 @@
           provider: storedPrimaryProvider,
           apiKey,
           voiceId,
+          region,
           fallbackProvider,
           fallbackApiKey,
-          fallbackVoiceId
+          fallbackVoiceId,
+          fallbackRegion
         })
       })
       .then(response => {
@@ -606,7 +651,7 @@
     }
 
     // --------------------------------------------------------------
-    // Match parsing and simulation
+    // Match parsing and simulation (same as before)
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
@@ -1043,7 +1088,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator component (full working version with after-over summary)
+    // MatchSimulator component (full working version)
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1114,7 +1159,7 @@
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Helper to get powerplay text based on overs and match type
+      // Helper to get powerplay text
       var getPowerplayText = function(oversDecimal) {
         var oversNum = parseFloat(oversDecimal);
         if (maxOvers === 20) {
@@ -1128,7 +1173,7 @@
         return "";
       };
 
-      // Helper to build batting scorecard data
+      // Helper to build batting scorecard
       var buildBattingScorecard = function() {
         var battingList = [];
         for (var batsman in cumulativeStats.battingStats) {
@@ -1155,7 +1200,7 @@
         };
       };
 
-      // Helper to build bowling scorecard data
+      // Helper to build bowling scorecard
       var buildBowlingScorecard = function() {
         var bowlingList = [];
         for (var bowler in cumulativeStats.bowlingStats) {
@@ -1181,7 +1226,7 @@
         };
       };
 
-      // Show scorecard overlay and hide after speech ends
+      // Show scorecard overlay
       var showScorecardOverlay = function(type, onHide) {
         if (scorecardHideTimeout.current) clearTimeout(scorecardHideTimeout.current);
         var data = type === 'batting' ? buildBattingScorecard() : buildBowlingScorecard();
@@ -1196,7 +1241,7 @@
         return hide;
       };
 
-      // Helper to generate over summary and show alternating scorecard
+      // Generate over summary
       var generateOverSummary = function() {
         var oversNum = parseFloat(matchState.overs);
         var balls = Math.floor(oversNum) * 6 + (oversNum % 1) * 10;
@@ -1248,7 +1293,7 @@
         }
       };
 
-      // Track wickets with details
+      // Track wickets
       React.useEffect(() => {
         if (currentBallIdx >= 0) {
           var delivery = deliveries[currentBallIdx];
@@ -1323,7 +1368,7 @@
         preloadAllPlayers();
       }, [inningsData]);
 
-      // Settings UI initialization (TTS provider)
+      // Settings UI initialization with Azure support
       React.useEffect(function() {
         try {
           const primarySelect = document.getElementById('primaryProvider');
@@ -1331,13 +1376,56 @@
           const elevenlabsVoice = document.getElementById('elevenlabsVoiceSelect');
           const googleKey = document.getElementById('googleApiKey');
           const googleVoice = document.getElementById('googleVoiceSelect');
+          const azureKey = document.getElementById('azureApiKey');
+          const azureRegion = document.getElementById('azureRegion');
+          const azureVoice = document.getElementById('azureVoiceSelect');
 
           if (primarySelect) primarySelect.value = storedPrimaryProvider;
           if (elevenlabsKey) elevenlabsKey.value = storedElevenlabsKey;
           if (elevenlabsVoice && storedElevenlabsVoice) elevenlabsVoice.value = storedElevenlabsVoice;
           if (googleKey) googleKey.value = storedGoogleKey;
           if (googleVoice && storedGoogleVoice) googleVoice.value = storedGoogleVoice;
+          if (azureKey) azureKey.value = storedAzureKey;
+          if (azureRegion) azureRegion.value = storedAzureRegion;
+          if (azureVoice && storedAzureVoice) azureVoice.value = storedAzureVoice;
 
+          // Refresh Azure voices
+          const refreshAzure = document.getElementById('refreshAzureVoices');
+          if (refreshAzure) {
+            refreshAzure.onclick = async () => {
+              const key = document.getElementById('azureApiKey').value;
+              const region = document.getElementById('azureRegion').value;
+              if (!key || !region) {
+                alert('Please enter your Azure API key and region first');
+                return;
+              }
+              try {
+                const response = await fetch(`${BACKEND_URL}/voices`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ provider: 'azure', apiKey: key, region: region })
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const voices = await response.json();
+                const select = document.getElementById('azureVoiceSelect');
+                if (select) {
+                  select.innerHTML = '<option value="">-- Select voice --</option>';
+                  voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.ShortName;
+                    option.textContent = voice.DisplayName + ' (' + voice.Locale + ')';
+                    select.appendChild(option);
+                  });
+                  if (storedAzureVoice) select.value = storedAzureVoice;
+                }
+              } catch (err) {
+                console.error(err);
+                alert('Could not fetch voices: ' + err.message);
+              }
+            };
+          }
+
+          // Refresh ElevenLabs voices
           const refreshEleven = document.getElementById('refreshElevenVoices');
           if (refreshEleven) {
             refreshEleven.onclick = async () => {
@@ -1376,6 +1464,7 @@
             };
           }
 
+          // Refresh Google voices
           const refreshGoogle = document.getElementById('refreshGoogleVoices');
           if (refreshGoogle) {
             refreshGoogle.onclick = async () => {
@@ -1418,7 +1507,10 @@
               const elevenVoice = document.getElementById('elevenlabsVoiceSelect').value;
               const googleKeyVal = document.getElementById('googleApiKey').value;
               const googleVoiceVal = document.getElementById('googleVoiceSelect').value;
-              updateTtsSettings(primary, elevenKey, elevenVoice, googleKeyVal, googleVoiceVal);
+              const azureKeyVal = document.getElementById('azureApiKey').value;
+              const azureRegionVal = document.getElementById('azureRegion').value;
+              const azureVoiceVal = document.getElementById('azureVoiceSelect').value;
+              updateTtsSettings(primary, elevenKey, elevenVoice, googleKeyVal, googleVoiceVal, azureKeyVal, azureRegionVal, azureVoiceVal);
               alert('Settings saved.');
             };
           }
@@ -1535,7 +1627,6 @@
           var newEntry = { id: idx, text: ballDesc, timestamp: new Date().toLocaleTimeString(), isWicket: delivery.wicket };
           return [newEntry].concat(prev).slice(0, 50);
         });
-        // Store last ball result for bottom bar
         if (delivery.wicket) {
           lastBallResult.current = "WICKET!";
         } else if (delivery.runs === 0) {
@@ -1610,7 +1701,7 @@
           setTarget(targetScore);
           setCurrentInningsIdx(1);
           setCurrentBallIdx(-1);
-          lastOverReported.current = -1; // reset for second innings
+          lastOverReported.current = -1;
           if (!muteAudio) speakWithCallback("End of first innings. " + firstTeam + " scored " + firstTotal + " for " + firstWickets + ". " + inningsData[1].team + " needs " + targetScore + " runs to win. Press start to begin the chase.", 'normal', function() {});
           return;
         }
@@ -1744,7 +1835,7 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Drawing functions (canvas) - simplified version that works
+      // Drawing functions (canvas) - simplified
       var drawScorecardOverlay = function(ctx, w, h) {
         if (!scorecardData) return;
         ctx.fillStyle = 'rgba(0,0,0,0.85)';
@@ -1981,7 +2072,7 @@
           ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 15, nonStrikerY + 28);
         }
 
-        // Fielders (moving dots)
+        // Fielders
         var fielders = [
           { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
         ];
@@ -2036,7 +2127,7 @@
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fillRect(0, bottomBarY, w, 90);
         
-        // Striker row (left side)
+        // Striker row
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px "Inter"';
         var strikerShort = currentDelivery ? getLastName(currentDelivery.striker) : '-';
@@ -2051,7 +2142,7 @@
         }
         ctx.fillText(strikerRuns + '  ' + strikerBalls, 15, bottomBarY + 55);
         
-        // Bowler row (right side)
+        // Bowler row
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 14px "Inter"';
         var bowlerShort = currentDelivery ? getLastName(currentDelivery.bowler) : '-';
@@ -2067,7 +2158,7 @@
         ctx.font = 'bold 16px monospace';
         ctx.fillText(bowlerStats, w - 15 - ctx.measureText(bowlerStats).width, bottomBarY + 55);
         
-        // Non-striker row (left side, below striker)
+        // Non-striker row
         ctx.fillStyle = '#ccc';
         ctx.font = '12px "Inter"';
         var nonStrikerShort = currentDelivery ? getLastName(currentDelivery.nonStriker) : '-';
@@ -2082,14 +2173,14 @@
         ctx.font = '12px monospace';
         ctx.fillText(nonStrikerRuns + '  ' + nonStrikerBalls, 15 + 100, bottomBarY + 78);
         
-        // Last ball result (right side)
+        // Last ball result
         if (lastBallResult.current) {
           ctx.fillStyle = '#facc15';
           ctx.font = 'bold 14px monospace';
           ctx.fillText('Last ball: ' + lastBallResult.current, w - 15 - ctx.measureText('Last ball: ' + lastBallResult.current).width, bottomBarY + 78);
         }
 
-        // Commentary ticker (just above bottom bar)
+        // Commentary ticker
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, bottomBarY - 28, w, 28);
@@ -2135,7 +2226,6 @@
           ctx.restore();
         }
         
-        // Draw scorecard overlay if active
         if (showScorecard && scorecardData) {
           drawScorecardOverlay(ctx, w, h);
         }
@@ -2168,7 +2258,7 @@
         } else {
           combinedStream = canvasStream;
           console.warn('No audio stream available – recording video only');
-          alert('No audio stream available. Ensure you have started the match and selected an external TTS provider (ElevenLabs/Google) for audio capture.');
+          alert('No audio stream available. Ensure you have started the match and selected an external TTS provider (ElevenLabs/Google/Azure) for audio capture.');
         }
 
         recordedChunksRef.current = [];
@@ -2206,7 +2296,7 @@
       var isMatchOver = isMatchFinished;
       var startDisabled = isMatchOver;
 
-      var systemVoiceWarning = (storedPrimaryProvider === 'system') ? React.createElement('div', { className: "warning" }, "⚠️ System voice will NOT be captured in video. Use ElevenLabs or Google Cloud for audio in recording.") : null;
+      var systemVoiceWarning = (storedPrimaryProvider === 'system') ? React.createElement('div', { className: "warning" }, "⚠️ System voice will NOT be captured in video. Use ElevenLabs, Google Cloud, or Azure for audio in recording.") : null;
 
       return (
         <div className="max-w-7xl mx-auto px-4 py-6">
@@ -2291,9 +2381,42 @@
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <button id="showSettingsBtn" className="w-full text-left text-teal-300 font-semibold flex justify-between items-center"><span>TTS Provider Settings</span><span>▼</span></button>
                 <div id="settingsPanel" style={{ display: 'none' }} className="mt-3 space-y-3 text-sm">
-                  <div><label className="block text-gray-400 mb-1">Primary Provider</label><select id="primaryProvider" className="w-full bg-gray-700 rounded p-1"><option value="system">System Voice (browser)</option><option value="elevenlabs">ElevenLabs</option><option value="google">Google Cloud</option></select></div>
-                  <div><label className="block text-gray-400 mb-1">ElevenLabs API Key</label><input type="password" id="elevenlabsApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="sk_..." /><div className="flex gap-1"><select id="elevenlabsVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select><button id="refreshElevenVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button></div></div>
-                  <div><label className="block text-gray-400 mb-1">Google Cloud API Key</label><input type="password" id="googleApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="AIza..." /><div className="flex gap-1"><select id="googleVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select><button id="refreshGoogleVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button></div></div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">Primary Provider</label>
+                    <select id="primaryProvider" className="w-full bg-gray-700 rounded p-1">
+                      <option value="system">System Voice (browser)</option>
+                      <option value="elevenlabs">ElevenLabs</option>
+                      <option value="google">Google Cloud</option>
+                      <option value="azure">Microsoft Azure</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">ElevenLabs API Key</label>
+                    <input type="password" id="elevenlabsApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="sk_..." />
+                    <div className="flex gap-1">
+                      <select id="elevenlabsVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select>
+                      <button id="refreshElevenVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">Google Cloud API Key</label>
+                    <input type="password" id="googleApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="AIza..." />
+                    <div className="flex gap-1">
+                      <select id="googleVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select>
+                      <button id="refreshGoogleVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-gray-400 mb-1">Azure API Key</label>
+                    <input type="password" id="azureApiKey" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="Your Azure API key" />
+                    <label className="block text-gray-400 mb-1 mt-2">Azure Region</label>
+                    <input type="text" id="azureRegion" className="w-full bg-gray-700 rounded p-1 mb-1" placeholder="eastus, westeurope, etc." />
+                    <div className="flex gap-1">
+                      <select id="azureVoiceSelect" className="flex-1 bg-gray-700 rounded p-1"></select>
+                      <button id="refreshAzureVoices" className="bg-teal-700 px-2 py-1 rounded text-xs">Refresh</button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Neural voices recommended for best quality</p>
+                  </div>
                   <button id="saveSettingsBtn" className="bg-green-700 text-xs px-3 py-1 rounded mt-1">Save Settings</button>
                   <p className="text-xs text-gray-400 mt-1">Keys stored in your browser. External TTS will be captured in video.</p>
                 </div>
