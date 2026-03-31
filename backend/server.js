@@ -96,6 +96,46 @@ async function googleTtsGenerate(text, style, apiKey, voiceId) {
   return stream;
 }
 
+// ---------- Azure TTS ----------
+async function azureTtsGenerate(text, style, apiKey, region, voiceId) {
+  let rate = 0;
+  let pitch = 0;
+  if (style === 'excited') {
+    rate = 15; // +15% speed
+    pitch = 2; // +2 semitones
+  } else if (style === 'dramatic') {
+    rate = -5; // slower for dramatic effect
+    pitch = -1;
+  }
+  
+  const ssml = `
+    <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">
+      <voice name="${voiceId}">
+        <prosody rate="${rate}%" pitch="${pitch}st">
+          ${text}
+        </prosody>
+      </voice>
+    </speak>
+  `;
+  
+  const url = `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`;
+  
+  const response = await axios({
+    method: 'POST',
+    url: url,
+    headers: {
+      'Ocp-Apim-Subscription-Key': apiKey,
+      'Content-Type': 'application/ssml+xml',
+      'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3',
+      'User-Agent': 'CricketBroadcastPro'
+    },
+    data: ssml,
+    responseType: 'stream'
+  });
+  
+  return response.data;
+}
+
 // ---------- New endpoint: fetch recent matches ZIP ----------
 app.get('/api/recent-matches', async (req, res) => {
   try {
@@ -107,7 +147,7 @@ app.get('/api/recent-matches', async (req, res) => {
       responseType: 'stream'
     });
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Access-Control-Allow-Origin', '*'); // CORS already handled, but safe
+    res.setHeader('Access-Control-Allow-Origin', '*');
     response.data.pipe(res);
   } catch (error) {
     console.error('Error fetching recent matches:', error.message);
@@ -118,33 +158,58 @@ app.get('/api/recent-matches', async (req, res) => {
   }
 });
 
-// ---------- Voice List Endpoints ----------
+// ---------- Voice List Endpoints (with Azure) ----------
 app.post('/voices', async (req, res) => {
-  const { provider, apiKey } = req.body;
+  const { provider, apiKey, region } = req.body;
   if (!provider || !apiKey) return res.status(400).send('Missing provider or API key');
+  
   try {
     if (provider === 'elevenlabs') {
       const response = await axios.get('https://api.elevenlabs.io/v1/voices', {
         headers: { 'xi-api-key': apiKey }
       });
       res.json(response.data.voices);
-    } else if (provider === 'google') {
+    } 
+    else if (provider === 'google') {
       const url = `https://texttospeech.googleapis.com/v1/voices?key=${apiKey}`;
       const response = await axios.get(url);
-      // Filter English voices (optional)
-      const englishVoices = response.data.voices.filter(v => v.languageCodes.some(lc => lc.startsWith('en')));
+      const englishVoices = response.data.voices.filter(v => 
+        v.languageCodes && v.languageCodes.some(lc => lc.startsWith('en'))
+      );
       res.json(englishVoices);
-    } else {
+    }
+    else if (provider === 'azure') {
+      if (!region) return res.status(400).send('Missing Azure region');
+      const url = `https://${region}.tts.speech.microsoft.com/cognitiveservices/voices/list`;
+      const response = await axios({
+        method: 'GET',
+        url: url,
+        headers: {
+          'Ocp-Apim-Subscription-Key': apiKey
+        }
+      });
+      // Filter English voices and format for frontend
+      const englishVoices = response.data.filter(voice => 
+        voice.Locale && voice.Locale.startsWith('en-')
+      );
+      res.json(englishVoices);
+    }
+    else {
       res.status(400).send('Invalid provider');
     }
   } catch (err) {
     console.error(`Error fetching voices for ${provider}:`, err.message);
-    if (err.response) console.error('Status:', err.response.status);
+    if (err.response) {
+      console.error('Status:', err.response.status);
+      if (err.response.data && typeof err.response.data === 'object') {
+        console.error('Response data:', JSON.stringify(err.response.data).substring(0, 500));
+      }
+    }
     res.status(500).send('Could not fetch voices');
   }
 });
 
-// ---------- Main TTS Endpoint (with fallback) ----------
+// ---------- Main TTS Endpoint (with Azure support and fallback) ----------
 async function handleRequest(req, res) {
   const {
     text,
@@ -152,9 +217,11 @@ async function handleRequest(req, res) {
     provider,
     apiKey,
     voiceId,
+    region,
     fallbackProvider,
     fallbackApiKey,
-    fallbackVoiceId
+    fallbackVoiceId,
+    fallbackRegion
   } = req.body;
 
   if (!text) return res.status(400).send('Missing text');
@@ -164,8 +231,8 @@ async function handleRequest(req, res) {
 
   console.log(`Processing request for provider: ${provider}, text: "${text.substring(0, 50)}..."`);
 
-  // Primary cache key
-  const cacheKey = getCacheKey(provider, text, voiceId, apiKey);
+  // Primary cache key (include region for Azure)
+  const cacheKey = getCacheKey(provider + (region || ''), text, voiceId, apiKey);
   const cachePath = path.join(CACHE_DIR, cacheKey);
   if (fs.existsSync(cachePath)) {
     console.log('Serving from cache:', cacheKey);
@@ -174,7 +241,6 @@ async function handleRequest(req, res) {
   }
 
   // Try primary provider
-  let success = false;
   let errorMsg = '';
 
   try {
@@ -183,9 +249,13 @@ async function handleRequest(req, res) {
       audioStream = await elevenLabsGenerate(text, style, apiKey, voiceId);
     } else if (provider === 'google') {
       audioStream = await googleTtsGenerate(text, style, apiKey, voiceId);
+    } else if (provider === 'azure') {
+      if (!region) throw new Error('Azure region is required');
+      audioStream = await azureTtsGenerate(text, style, apiKey, region, voiceId);
     } else {
       throw new Error('Invalid provider');
     }
+    
     // Save to cache
     const writeStream = fs.createWriteStream(cachePath);
     await new Promise((resolve, reject) => {
@@ -201,7 +271,6 @@ async function handleRequest(req, res) {
     console.error(`Primary provider ${provider} failed:`, err.message);
     if (err.response) {
       console.error('Status:', err.response.status);
-      // Capture response body for more details
       if (err.response.data && typeof err.response.data.pipe === 'function') {
         const chunks = [];
         err.response.data.on('data', chunk => chunks.push(chunk));
@@ -209,8 +278,8 @@ async function handleRequest(req, res) {
           const body = Buffer.concat(chunks).toString();
           console.error('Response body:', body);
         });
-      } else {
-        console.error('Response data:', err.response.data);
+      } else if (err.response.data) {
+        console.error('Response data:', JSON.stringify(err.response.data).substring(0, 500));
       }
     }
     errorMsg = err.message;
@@ -224,11 +293,15 @@ async function handleRequest(req, res) {
           fallbackStream = await elevenLabsGenerate(text, style, fallbackApiKey, fallbackVoiceId);
         } else if (fallbackProvider === 'google') {
           fallbackStream = await googleTtsGenerate(text, style, fallbackApiKey, fallbackVoiceId);
+        } else if (fallbackProvider === 'azure') {
+          if (!fallbackRegion) throw new Error('Azure fallback region is required');
+          fallbackStream = await azureTtsGenerate(text, style, fallbackApiKey, fallbackRegion, fallbackVoiceId);
         } else {
           throw new Error('Invalid fallback provider');
         }
-        // Save fallback to its own cache (using fallback's cache key)
-        const fallbackCacheKey = getCacheKey(fallbackProvider, text, fallbackVoiceId, fallbackApiKey);
+        
+        // Save fallback to its own cache
+        const fallbackCacheKey = getCacheKey(fallbackProvider + (fallbackRegion || ''), text, fallbackVoiceId, fallbackApiKey);
         const fallbackCachePath = path.join(CACHE_DIR, fallbackCacheKey);
         const writeStream = fs.createWriteStream(fallbackCachePath);
         await new Promise((resolve, reject) => {
