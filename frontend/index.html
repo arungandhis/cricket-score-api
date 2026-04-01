@@ -4,13 +4,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Cricket Broadcast Pro – Admin Panel</title>
+  <title>Cricket Broadcast Pro – 4K Broadcast Studio</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     * { font-family: 'Inter', sans-serif; }
-    .commentary-text { font-family: 'JetBrains Mono', monospace; }
-    canvas { box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); border-radius: 1rem; background: #0a1f1e; width: 100%; height: auto; }
+    canvas { 
+      box-shadow: 0 20px 35px -10px rgba(0,0,0,0.3); 
+      border-radius: 1rem; 
+      background: #0a1f1e; 
+      width: 100%; 
+      height: auto;
+      image-rendering: crisp-edges;
+      image-rendering: -webkit-optimize-contrast;
+    }
     .error-bar { background: #ff4444; color: white; padding: 12px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; z-index: 1000; font-size: 14px; z-index: 1001; }
     .stats-table { overflow-x: auto; max-width: 100%; }
     .stats-table table { min-width: 500px; }
@@ -23,6 +30,16 @@
     .warning { background: #facc15; color: #1f2937; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; margin-top: 6px; }
     #root { min-height: 100vh; }
     .loading { padding: 20px; text-align: center; color: #9ca3af; }
+    
+    /* Smooth animations */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes glowPulse {
+      0%, 100% { filter: drop-shadow(0 0 5px #facc15); }
+      50% { filter: drop-shadow(0 0 15px #ffaa44); }
+    }
   </style>
   <script src="https://unpkg.com/regenerator-runtime@0.13.11/runtime.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -48,7 +65,7 @@
 
   <script type="text/babel" data-presets="es2015,react,stage-2">
     // --------------------------------------------------------------
-    // Helper functions
+    // Helper functions (unchanged from previous working version)
     // --------------------------------------------------------------
     const getLastName = (fullName) => {
       if (!fullName) return "player";
@@ -147,7 +164,86 @@
     const BACKEND_URL = 'https://cricket-score-api-57pk.onrender.com';
 
     // --------------------------------------------------------------
-    // Real player image loading with multiple fallback sources
+    // High-DPI Canvas Setup
+    // --------------------------------------------------------------
+    const CANVAS_WIDTH = 1920;
+    const CANVAS_HEIGHT = 1080;
+    
+    function setupHighDPICanvas(canvas) {
+      const scale = window.devicePixelRatio || 1;
+      canvas.width = CANVAS_WIDTH * scale;
+      canvas.height = CANVAS_HEIGHT * scale;
+      canvas.style.width = `${CANVAS_WIDTH}px`;
+      canvas.style.height = `${CANVAS_HEIGHT}px`;
+      
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.textRenderingOptimization = 'geometricPrecision';
+      return ctx;
+    }
+
+    // --------------------------------------------------------------
+    // Enhanced Animation System with requestAnimationFrame
+    // --------------------------------------------------------------
+    class AnimationController {
+      constructor() {
+        this.animations = new Map();
+        this.frameId = null;
+        this.lastTimestamp = 0;
+      }
+      
+      start() {
+        if (this.frameId) return;
+        const animate = (timestamp) => {
+          const delta = Math.min(33, timestamp - this.lastTimestamp);
+          this.lastTimestamp = timestamp;
+          
+          for (const [id, anim] of this.animations) {
+            if (anim.active) {
+              anim.progress += delta / anim.duration;
+              if (anim.progress >= 1) {
+                anim.progress = 1;
+                anim.active = false;
+                if (anim.onComplete) anim.onComplete();
+                this.animations.delete(id);
+              } else {
+                if (anim.onUpdate) anim.onUpdate(anim.progress);
+              }
+            }
+          }
+          
+          this.frameId = requestAnimationFrame(animate);
+        };
+        this.lastTimestamp = performance.now();
+        this.frameId = requestAnimationFrame(animate);
+      }
+      
+      stop() {
+        if (this.frameId) {
+          cancelAnimationFrame(this.frameId);
+          this.frameId = null;
+        }
+      }
+      
+      add(id, duration, onUpdate, onComplete) {
+        this.animations.set(id, {
+          active: true,
+          progress: 0,
+          duration: duration,
+          onUpdate: onUpdate,
+          onComplete: onComplete
+        });
+        return id;
+      }
+    }
+    
+    const animationController = new AnimationController();
+    animationController.start();
+
+    // --------------------------------------------------------------
+    // Player image loading (same as before)
     // --------------------------------------------------------------
     let playerImageCache = new Map();
 
@@ -164,67 +260,79 @@
     function getPlayerImageUrl(fullName) {
       if (!fullName) return null;
       const seed = encodeURIComponent(fullName);
-      // Use DiceBear with avataaars style for human-like faces
-      return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&backgroundColor=0D8ABC&radius=50&size=120&mouth=smile&eyes=default&eyebrows=default&hair=default&clothing=shirt`;
+      return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&backgroundColor=0D8ABC&radius=50&size=200&mouth=smile&eyes=default&eyebrows=default&hair=default&clothing=shirt&accessories=blank&skinColor=variant01`;
     }
 
     function getFallbackImageUrl(fullName) {
       if (!fullName) return null;
       const initials = fullName.split(' ').map(p => p.charAt(0).toUpperCase()).join('');
       const backgroundColor = getRandomColorFromName(fullName);
-      return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=FFFFFF&size=120&rounded=true&bold=true&length=2&fontsize=50&format=png`;
-    }
-
-    function getInitialsImageUrl(fullName) {
-      if (!fullName) return null;
-      const seed = encodeURIComponent(fullName);
-      return `https://api.dicebear.com/9.x/initials/svg?seed=${seed}&backgroundColor=0D8ABC&radius=50&size=80&fontSize=40&fontWeight=600`;
+      return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=${backgroundColor}&color=FFFFFF&size=200&rounded=true&bold=true&length=2&fontsize=80&format=png`;
     }
 
     async function loadPlayerImage(fullName) {
       if (!fullName) return null;
-      
       if (playerImageCache.has(fullName)) {
         const cached = playerImageCache.get(fullName);
         if (cached && cached.complete && cached.naturalWidth > 0) return cached;
       }
-      
       return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
-        
-        let currentAttempt = 0;
-        const urls = [
-          getPlayerImageUrl(fullName),
-          getFallbackImageUrl(fullName),
-          getInitialsImageUrl(fullName)
-        ];
-        
-        const tryNextUrl = () => {
-          if (currentAttempt >= urls.length) {
-            console.warn(`Failed to load image for ${fullName} after all attempts`);
+        let attempts = 0;
+        const urls = [getPlayerImageUrl(fullName), getFallbackImageUrl(fullName)];
+        const tryNext = () => {
+          if (attempts >= urls.length) {
             playerImageCache.set(fullName, null);
             resolve(null);
             return;
           }
-          
-          const url = urls[currentAttempt];
-          currentAttempt++;
-          img.src = url;
+          img.src = urls[attempts];
+          attempts++;
         };
-        
         img.onload = () => {
           playerImageCache.set(fullName, img);
           resolve(img);
         };
-        
-        img.onerror = () => {
-          console.warn(`Failed to load from attempt ${currentAttempt} for ${fullName}`);
-          tryNextUrl();
-        };
-        
-        tryNextUrl();
+        img.onerror = () => tryNext();
+        tryNext();
       });
+    }
+
+    // --------------------------------------------------------------
+    // Enhanced Vector Drawing Functions
+    // --------------------------------------------------------------
+    function drawRoundedRect(ctx, x, y, w, h, r, fillStyle, strokeStyle = null, lineWidth = 0) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      if (fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+      if (strokeStyle && lineWidth) {
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      }
+    }
+
+    function drawGlow(ctx, x, y, radius, color, intensity = 0.5) {
+      ctx.shadowBlur = radius;
+      ctx.shadowColor = color;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
     }
 
     // --------------------------------------------------------------
@@ -712,7 +820,9 @@
       }
     }
 
-    // Match parsing functions (abbreviated - same as before)
+    // --------------------------------------------------------------
+    // Match parsing functions (same as before)
+    // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || !Array.isArray(json.innings) || json.innings.length < 2) {
         throw new Error("Invalid Cricsheet format: need two innings");
@@ -1112,7 +1222,9 @@
       }
     };
 
-    // MatchSimulator component (abbreviated - includes all features)
+    // --------------------------------------------------------------
+    // MatchSimulator with High-DPI Canvas and Enhanced Rendering
+    // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
       var matchInfo = props.matchData.matchInfo;
@@ -1135,15 +1247,15 @@
       var lastOverReported = React.useRef(-1);
       var lastBallResult = React.useRef(null);
       
-      // Scorecard overlay state
       var [showScorecard, setShowScorecard] = React.useState(false);
       var [scorecardData, setScorecardData] = React.useState(null);
       var [scorecardType, setScorecardType] = React.useState('bowling');
       var scorecardHideTimeout = React.useRef(null);
       
-      // Track wickets with details
       var [wicketsWithDetails, setWicketsWithDetails] = React.useState([]);
       var lastWicketScore = React.useRef(-1);
+      
+      var [animationProgress, setAnimationProgress] = React.useState(0);
 
       var startGuardRef = React.useRef(false);
       var introPlayedRef = React.useRef(false);
@@ -1182,7 +1294,7 @@
       var isInningsFinished = matchState.legalBalls >= maxOvers * 6 || matchState.wickets >= 10;
       var isMatchFinished = currentInningsIdx === 1 && (isInningsFinished || matchState.totalRuns >= target);
 
-      // Helper to get powerplay text
+      // Helper functions
       var getPowerplayText = function(oversDecimal) {
         var oversNum = parseFloat(oversDecimal);
         if (maxOvers === 20) {
@@ -1196,7 +1308,7 @@
         return "";
       };
 
-      // Helper to build batting scorecard
+      // Build scorecard functions
       var buildBattingScorecard = function() {
         var battingList = [];
         for (var batsman in cumulativeStats.battingStats) {
@@ -1223,7 +1335,6 @@
         };
       };
 
-      // Helper to build bowling scorecard
       var buildBowlingScorecard = function() {
         var bowlingList = [];
         for (var bowler in cumulativeStats.bowlingStats) {
@@ -1249,7 +1360,6 @@
         };
       };
 
-      // Show scorecard overlay
       var showScorecardOverlay = function(type, onHide) {
         if (scorecardHideTimeout.current) clearTimeout(scorecardHideTimeout.current);
         var data = type === 'batting' ? buildBattingScorecard() : buildBowlingScorecard();
@@ -1260,11 +1370,10 @@
           setShowScorecard(false);
           if (onHide) onHide();
         };
-        scorecardHideTimeout.current = setTimeout(hide, 10000);
+        scorecardHideTimeout.current = setTimeout(hide, 8000);
         return hide;
       };
 
-      // Generate over summary
       var generateOverSummary = function() {
         var oversNum = parseFloat(matchState.overs);
         var balls = Math.floor(oversNum) * 6 + (oversNum % 1) * 10;
@@ -1337,18 +1446,15 @@
         }
       }, [currentBallIdx, deliveries, matchState.totalRuns]);
 
-      // Reset wickets when innings changes
       React.useEffect(() => {
         setWicketsWithDetails([]);
         lastWicketScore.current = -1;
       }, [currentInningsIdx]);
 
-      // Load system voices
       React.useEffect(function() {
         loadSystemVoices();
       }, []);
 
-      // Load audio and set up UI
       React.useEffect(function() {
         var initAudioOnInteraction = function() {
           if (!audioCtx) {
@@ -1361,7 +1467,6 @@
         return function() { document.removeEventListener('click', initAudioOnInteraction); };
       }, []);
 
-      // Apply ambience
       React.useEffect(function() {
         if (audioCtx) {
           if (ambientEnabled && !muteAudio) setAmbience(true);
@@ -1369,7 +1474,6 @@
         }
       }, [ambientEnabled, muteAudio]);
 
-      // Preload player images with realistic images
       React.useEffect(() => {
         async function preloadAllPlayers() {
           const playerNamesSet = new Set();
@@ -1391,7 +1495,7 @@
         preloadAllPlayers();
       }, [inningsData]);
 
-      // Settings UI initialization (TTS provider)
+      // Settings UI initialization
       React.useEffect(function() {
         try {
           const primarySelect = document.getElementById('primaryProvider');
@@ -1633,7 +1737,6 @@
         }
       }, [isMatchFinished, firstInningsStats]);
 
-      // Trigger over summary after ball if over completed
       React.useEffect(() => {
         if (currentBallIdx >= 0 && !isMatchFinished && !isInningsFinished) {
           generateOverSummary();
@@ -1670,6 +1773,11 @@
         else if (runs === 0) type = 'dot';
         setEffect({ type: type, startTime: Date.now() });
         effectTimeoutRef.current = setTimeout(function() { setEffect(null); }, 1000);
+        
+        // Animate progress for smooth transitions
+        animationController.add('effect', 300, (progress) => {
+          setAnimationProgress(progress);
+        }, () => setAnimationProgress(0));
 
         if (!muteAudio && ambientEnabled) {
           if (isWicket) playReaction('gasp');
@@ -1855,95 +1963,119 @@
 
       var pauseMatch = function() { setIsPlaying(false); };
 
-      // Draw functions
+      // Enhanced High-DPI Canvas Drawing with Vector Graphics
       var drawScorecardOverlay = function(ctx, w, h) {
         if (!scorecardData) return;
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        
+        // Semi-transparent dark background with gradient
+        var grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, 'rgba(0,0,0,0.95)');
+        grad.addColorStop(1, 'rgba(0,0,0,0.85)');
+        ctx.fillStyle = grad;
         ctx.fillRect(0, 0, w, h);
         
+        // Title with glow
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = '#facc15';
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 24px "Inter", sans-serif';
-        ctx.fillText(scorecardData.tournament, 20, 50);
+        ctx.font = 'bold 28px "Inter", sans-serif';
+        ctx.fillText(scorecardData.tournament, 40, 70);
+        ctx.shadowBlur = 0;
+        
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 20px "Inter"';
-        ctx.fillText(scorecardData.team, 20, 90);
+        ctx.font = 'bold 24px "Inter"';
+        ctx.fillText(scorecardData.team, 40, 120);
         
+        // Score panel
+        drawRoundedRect(ctx, 40, 140, 280, 70, 12, 'rgba(0,0,0,0.6)', '#facc15', 2);
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 32px monospace';
+        ctx.font = 'bold 42px monospace';
         var scoreText = scorecardData.totalScore + '/' + scorecardData.wickets;
-        ctx.fillText(scoreText, 20, 140);
+        ctx.fillText(scoreText, 55, 195);
         ctx.fillStyle = '#ccc';
-        ctx.font = '16px monospace';
-        ctx.fillText('(' + scorecardData.overs + ' overs)', 20 + ctx.measureText(scoreText).width + 10, 135);
+        ctx.font = '18px monospace';
+        ctx.fillText('(' + scorecardData.overs + ' overs)', 55 + ctx.measureText(scoreText).width + 15, 190);
         
-        var startY = 180;
-        var rowHeight = 28;
+        var startY = 240;
+        var rowHeight = 36;
+        var colWidths = { name: 200, runs: 60, balls: 60, fours: 60, sixes: 60, sr: 80 };
         
         if (scorecardType === 'batting') {
+          // Table header
           ctx.fillStyle = '#aaa';
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText('Batsman', 20, startY);
-          ctx.fillText('R', 200, startY);
-          ctx.fillText('B', 260, startY);
-          ctx.fillText('4s', 320, startY);
-          ctx.fillText('6s', 380, startY);
-          ctx.fillText('SR', 440, startY);
+          ctx.font = 'bold 14px monospace';
+          ctx.fillText('Batsman', 40, startY);
+          ctx.fillText('R', 40 + colWidths.name, startY);
+          ctx.fillText('B', 40 + colWidths.name + colWidths.runs, startY);
+          ctx.fillText('4s', 40 + colWidths.name + colWidths.runs + colWidths.balls, startY);
+          ctx.fillText('6s', 40 + colWidths.name + colWidths.runs + colWidths.balls + colWidths.fours, startY);
+          ctx.fillText('SR', 40 + colWidths.name + colWidths.runs + colWidths.balls + colWidths.fours + colWidths.sixes, startY);
+          
           ctx.strokeStyle = '#555';
           ctx.beginPath();
-          ctx.moveTo(20, startY + 5);
-          ctx.lineTo(w - 20, startY + 5);
+          ctx.moveTo(40, startY + 5);
+          ctx.lineTo(w - 40, startY + 5);
           ctx.stroke();
+          
           var y = startY + rowHeight;
-          scorecardData.battingStats.forEach(b => {
+          scorecardData.battingStats.slice(0, 8).forEach(b => {
             ctx.fillStyle = '#fff';
             ctx.font = '12px monospace';
-            ctx.fillText(b.name, 20, y);
-            ctx.fillText(b.runs, 200, y);
-            ctx.fillText(b.balls, 260, y);
-            ctx.fillText(b.fours, 320, y);
-            ctx.fillText(b.sixes, 380, y);
-            ctx.fillText(b.sr, 440, y);
+            ctx.fillText(b.name, 40, y);
+            ctx.fillStyle = '#facc15';
+            ctx.fillText(b.runs, 40 + colWidths.name, y);
+            ctx.fillStyle = '#ccc';
+            ctx.fillText(b.balls, 40 + colWidths.name + colWidths.runs, y);
+            ctx.fillText(b.fours, 40 + colWidths.name + colWidths.runs + colWidths.balls, y);
+            ctx.fillText(b.sixes, 40 + colWidths.name + colWidths.runs + colWidths.balls + colWidths.fours, y);
+            ctx.fillText(b.sr, 40 + colWidths.name + colWidths.runs + colWidths.balls + colWidths.fours + colWidths.sixes, y);
             y += rowHeight;
-            if (y > h - 140) return;
+            if (y > h - 120) return;
           });
         } else {
+          // Bowling table
           ctx.fillStyle = '#aaa';
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText('Bowler', 20, startY);
-          ctx.fillText('O', 200, startY);
-          ctx.fillText('M', 260, startY);
-          ctx.fillText('R', 320, startY);
-          ctx.fillText('W', 380, startY);
-          ctx.fillText('Econ', 440, startY);
+          ctx.font = 'bold 14px monospace';
+          ctx.fillText('Bowler', 40, startY);
+          ctx.fillText('O', 280, startY);
+          ctx.fillText('M', 340, startY);
+          ctx.fillText('R', 400, startY);
+          ctx.fillText('W', 460, startY);
+          ctx.fillText('Econ', 520, startY);
+          
           ctx.strokeStyle = '#555';
           ctx.beginPath();
-          ctx.moveTo(20, startY + 5);
-          ctx.lineTo(w - 20, startY + 5);
+          ctx.moveTo(40, startY + 5);
+          ctx.lineTo(w - 40, startY + 5);
           ctx.stroke();
+          
           var y = startY + rowHeight;
-          scorecardData.bowlingStats.forEach(b => {
+          scorecardData.bowlingStats.slice(0, 8).forEach(b => {
             ctx.fillStyle = '#fff';
             ctx.font = '12px monospace';
-            ctx.fillText(b.name, 20, y);
-            ctx.fillText(b.overs, 200, y);
-            ctx.fillText(b.maidens, 260, y);
-            ctx.fillText(b.runs, 320, y);
-            ctx.fillText(b.wickets, 380, y);
-            ctx.fillText(b.econ, 440, y);
+            ctx.fillText(b.name, 40, y);
+            ctx.fillStyle = '#facc15';
+            ctx.fillText(b.overs, 280, y);
+            ctx.fillStyle = '#ccc';
+            ctx.fillText(b.maidens, 340, y);
+            ctx.fillText(b.runs, 400, y);
+            ctx.fillText(b.wickets, 460, y);
+            ctx.fillText(b.econ, 520, y);
             y += rowHeight;
-            if (y > h - 140) return;
+            if (y > h - 120) return;
           });
         }
         
+        // Fall of wickets
         if (scorecardData.wicketDetails && scorecardData.wicketDetails.length > 0) {
-          var fowY = (scorecardType === 'batting' ? 180 + rowHeight * Math.min(scorecardData.battingStats.length, 7) : 180 + rowHeight * Math.min(scorecardData.bowlingStats.length, 7)) + 25;
+          var fowY = (scorecardType === 'batting' ? 240 + rowHeight * Math.min(scorecardData.battingStats.length, 8) : 240 + rowHeight * Math.min(scorecardData.bowlingStats.length, 8)) + 30;
           ctx.fillStyle = '#aaa';
-          ctx.font = 'bold 13px monospace';
-          ctx.fillText('Fall of Wickets', 20, fowY);
+          ctx.font = 'bold 14px monospace';
+          ctx.fillText('Fall of Wickets', 40, fowY);
           ctx.fillStyle = '#ccc';
           ctx.font = '11px monospace';
           var fowLines = [];
-          scorecardData.wicketDetails.forEach((w, i) => {
+          scorecardData.wicketDetails.slice(0, 10).forEach((w, i) => {
             var desc = `${i+1}: ${w.batsman} ${w.score}`;
             if (w.kind && w.kind !== 'run out') {
               if (w.kind === 'caught') desc += ` (c ${w.fielder} b ${w.bowler})`;
@@ -1956,228 +2088,264 @@
             fowLines.push(desc);
           });
           var fowText = fowLines.join('  •  ');
-          ctx.fillText(fowText, 20, fowY + 22);
+          ctx.fillText(fowText, 40, fowY + 25);
         }
       };
 
+      // Main canvas drawing with High-DPI support
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
-        var ctx = canvas.getContext('2d');
-        var w = canvas.width, h = canvas.height;
-
-        // Stadium gradient background
+        
+        // Setup High-DPI canvas
+        var ctx = setupHighDPICanvas(canvas);
+        var w = CANVAS_WIDTH;
+        var h = CANVAS_HEIGHT;
+        
+        // Anti-aliasing enabled
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        
+        // Stadium gradient background with broadcast style
         var grad = ctx.createLinearGradient(0, 0, 0, h);
-        grad.addColorStop(0, '#2c5e2e');
-        grad.addColorStop(0.5, '#1e3a1e');
-        grad.addColorStop(1, '#0a2f0a');
+        grad.addColorStop(0, '#1e5a2e');
+        grad.addColorStop(0.5, '#0e3a1e');
+        grad.addColorStop(1, '#062a12');
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, w, h);
         
-        // Grass pattern
-        ctx.fillStyle = '#3e6b3e';
-        for (let i = 0; i < 200; i++) {
+        // Enhanced grass pattern with radial gradient spots
+        for (let i = 0; i < 300; i++) {
           ctx.beginPath();
-          ctx.arc(Math.random() * w, Math.random() * h, 2, 0, Math.PI * 2);
+          ctx.arc(Math.random() * w, Math.random() * h, Math.random() * 3 + 1, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(80, 120, 60, ${Math.random() * 0.3 + 0.1})`;
           ctx.fill();
         }
-
-        // Pitch area
-        var pitchX = w * 0.3, pitchW = w * 0.4, pitchY = h * 0.3, pitchH = h * 0.4;
-        ctx.fillStyle = '#2a7a2a';
+        
+        // Pitch area with gradient
+        var pitchX = w * 0.25, pitchW = w * 0.5, pitchY = h * 0.25, pitchH = h * 0.5;
+        var pitchGrad = ctx.createLinearGradient(pitchX, pitchY, pitchX, pitchY + pitchH);
+        pitchGrad.addColorStop(0, '#3a9a3a');
+        pitchGrad.addColorStop(1, '#2a7a2a');
+        ctx.fillStyle = pitchGrad;
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
+        
+        // Pitch markings with vector lines
         ctx.beginPath();
         ctx.strokeStyle = '#fff5e0';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.9);
         ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.9);
         ctx.stroke();
         ctx.moveTo(pitchX + pitchW * 0.15, pitchY + pitchH * 0.1);
         ctx.lineTo(pitchX + pitchW * 0.85, pitchY + pitchH * 0.1);
         ctx.stroke();
+        
+        // Stumps with 3D effect
         ctx.fillStyle = '#b97c3e';
-        ctx.fillRect(pitchX + pitchW * 0.85 - 5, pitchY + pitchH * 0.1 - 8, 10, 8);
-        ctx.fillRect(pitchX + pitchW * 0.15 - 5, pitchY + pitchH * 0.9, 10, 8);
-
-        // Batsman with real image
-        var batsmanX = pitchX + pitchW * 0.85 - 40, batsmanY = pitchY + pitchH * 0.1 - 45;
+        ctx.shadowBlur = 4;
+        ctx.fillRect(pitchX + pitchW * 0.85 - 8, pitchY + pitchH * 0.1 - 12, 12, 12);
+        ctx.fillRect(pitchX + pitchW * 0.15 - 8, pitchY + pitchH * 0.9, 12, 12);
+        ctx.shadowBlur = 0;
+        
+        // Batsman with real image and glow
+        var batsmanX = pitchX + pitchW * 0.85 - 60, batsmanY = pitchY + pitchH * 0.1 - 60;
         var strikerName = currentDelivery ? currentDelivery.striker : null;
         var strikerImage = strikerName ? playerImageCache.get(strikerName) : null;
         
-        // Add shadow for depth
-        ctx.shadowColor = 'rgba(0,0,0,0.3)';
-        ctx.shadowBlur = 8;
-        
+        // Glow effect for striker
         if (strikerImage && strikerImage.complete && strikerImage.naturalWidth > 0) {
           ctx.save();
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#facc15';
           ctx.beginPath();
-          ctx.arc(batsmanX + 40, batsmanY + 40, 38, 0, Math.PI * 2);
+          ctx.arc(batsmanX + 60, batsmanY + 60, 55, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(250, 204, 21, 0.3)';
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          
+          ctx.beginPath();
+          ctx.arc(batsmanX + 60, batsmanY + 60, 52, 0, Math.PI * 2);
           ctx.clip();
-          ctx.drawImage(strikerImage, batsmanX + 2, batsmanY + 2, 76, 76);
+          ctx.drawImage(strikerImage, batsmanX + 8, batsmanY + 8, 104, 104);
           ctx.restore();
-          // Glow effect for striker
+          
+          // Border
           ctx.beginPath();
-          ctx.arc(batsmanX + 40, batsmanY + 40, 40, 0, Math.PI * 2);
+          ctx.arc(batsmanX + 60, batsmanY + 60, 54, 0, Math.PI * 2);
           ctx.strokeStyle = '#facc15';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 3;
           ctx.stroke();
         } else {
           ctx.fillStyle = '#3b82f6';
           ctx.beginPath();
-          ctx.arc(batsmanX + 40, batsmanY + 40, 35, 0, Math.PI * 2);
+          ctx.arc(batsmanX + 60, batsmanY + 60, 48, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#fff';
-          ctx.font = 'bold 20px "Inter"';
-          ctx.fillText(strikerName ? getLastName(strikerName).charAt(0).toUpperCase() : '?', batsmanX + 32, batsmanY + 55);
+          ctx.font = 'bold 32px "Inter"';
+          ctx.fillText(strikerName ? getLastName(strikerName).charAt(0).toUpperCase() : '?', batsmanX + 48, batsmanY + 85);
         }
-
-        // Bat animation
+        
+        // Bat animation with smooth easing
         var batAngle = 0;
         if (batsmanAnim.active) {
           var elapsed = Math.min(1, (Date.now() - batsmanAnim.startTime) / 300);
+          var easeOut = 1 - Math.pow(1 - elapsed, 3);
           if (batsmanAnim.type === 'shot') {
-            batAngle = -Math.PI / 3 * (1 - elapsed);
+            batAngle = -Math.PI / 2.5 * (1 - easeOut);
           } else if (batsmanAnim.type === 'miss') {
-            batAngle = -Math.PI / 4 * (1 - elapsed);
+            batAngle = -Math.PI / 3 * (1 - easeOut);
           }
         }
         ctx.save();
-        ctx.translate(batsmanX + 60, batsmanY + 50);
+        ctx.translate(batsmanX + 85, batsmanY + 75);
         ctx.rotate(batAngle);
         ctx.fillStyle = '#8B4513';
-        ctx.fillRect(0, 0, 20, 5);
+        ctx.fillRect(-5, -3, 30, 8);
         ctx.restore();
-
+        
         // Bowler with real image
-        var bowlerX = pitchX + pitchW * 0.15 - 40, bowlerY = pitchY + pitchH * 0.9 - 45;
+        var bowlerX = pitchX + pitchW * 0.15 - 60, bowlerY = pitchY + pitchH * 0.9 - 60;
         var bowlerName = currentDelivery ? currentDelivery.bowler : null;
         var bowlerImage = bowlerName ? playerImageCache.get(bowlerName) : null;
         if (bowlerImage && bowlerImage.complete && bowlerImage.naturalWidth > 0) {
           ctx.save();
           ctx.beginPath();
-          ctx.arc(bowlerX + 40, bowlerY + 40, 35, 0, Math.PI * 2);
+          ctx.arc(bowlerX + 60, bowlerY + 60, 52, 0, Math.PI * 2);
           ctx.clip();
-          ctx.drawImage(bowlerImage, bowlerX + 5, bowlerY + 5, 70, 70);
+          ctx.drawImage(bowlerImage, bowlerX + 8, bowlerY + 8, 104, 104);
           ctx.restore();
+          ctx.beginPath();
+          ctx.arc(bowlerX + 60, bowlerY + 60, 54, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 3;
+          ctx.stroke();
         } else {
           ctx.fillStyle = '#ef4444';
           ctx.beginPath();
-          ctx.arc(bowlerX + 40, bowlerY + 40, 30, 0, Math.PI * 2);
+          ctx.arc(bowlerX + 60, bowlerY + 60, 48, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#fff';
-          ctx.font = 'bold 20px "Inter"';
-          ctx.fillText(bowlerName ? getLastName(bowlerName).charAt(0).toUpperCase() : '?', bowlerX + 30, bowlerY + 55);
+          ctx.font = 'bold 32px "Inter"';
+          ctx.fillText(bowlerName ? getLastName(bowlerName).charAt(0).toUpperCase() : '?', bowlerX + 48, bowlerY + 85);
         }
-
+        
         // Arm animation
         var armAngle = 0;
         if (bowlerAnim.active) {
           var elapsed = Math.min(1, (Date.now() - bowlerAnim.startTime) / 300);
-          armAngle = -Math.PI / 2 * (1 - elapsed);
+          var easeOut = 1 - Math.pow(1 - elapsed, 3);
+          armAngle = -Math.PI / 1.8 * (1 - easeOut);
         }
         ctx.save();
-        ctx.translate(bowlerX + 50, bowlerY + 30);
+        ctx.translate(bowlerX + 75, bowlerY + 50);
         ctx.rotate(armAngle);
         ctx.fillStyle = '#d1d5db';
-        ctx.fillRect(0, 0, 30, 8);
+        ctx.fillRect(-5, -3, 45, 12);
         ctx.restore();
-
+        
         // Non-striker with real image
-        var nonStrikerX = pitchX + pitchW * 0.5 - 20, nonStrikerY = pitchY + pitchH * 0.8;
+        var nonStrikerX = pitchX + pitchW * 0.5 - 35, nonStrikerY = pitchY + pitchH * 0.75;
         var nonStrikerName = currentDelivery ? currentDelivery.nonStriker : null;
         var nonStrikerImage = nonStrikerName ? playerImageCache.get(nonStrikerName) : null;
         if (nonStrikerImage && nonStrikerImage.complete && nonStrikerImage.naturalWidth > 0) {
           ctx.save();
           ctx.beginPath();
-          ctx.arc(nonStrikerX + 20, nonStrikerY + 20, 22, 0, Math.PI * 2);
+          ctx.arc(nonStrikerX + 35, nonStrikerY + 35, 30, 0, Math.PI * 2);
           ctx.clip();
-          ctx.drawImage(nonStrikerImage, nonStrikerX - 2, nonStrikerY - 2, 44, 44);
+          ctx.drawImage(nonStrikerImage, nonStrikerX + 5, nonStrikerY + 5, 60, 60);
           ctx.restore();
         } else {
           ctx.fillStyle = '#3b82f6';
           ctx.beginPath();
-          ctx.arc(nonStrikerX + 20, nonStrikerY + 20, 18, 0, Math.PI * 2);
+          ctx.arc(nonStrikerX + 35, nonStrikerY + 35, 28, 0, Math.PI * 2);
           ctx.fill();
           ctx.fillStyle = '#fff';
-          ctx.font = 'bold 14px "Inter"';
-          ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 14, nonStrikerY + 27);
+          ctx.font = 'bold 20px "Inter"';
+          ctx.fillText(nonStrikerName ? getLastName(nonStrikerName).charAt(0).toUpperCase() : '?', nonStrikerX + 26, nonStrikerY + 48);
         }
         
-        ctx.shadowBlur = 0;
-
-        // Fielders
+        // Fielders with smooth movement
         var fielders = [
-          { x: 0.2, y: 0.3 }, { x: 0.25, y: 0.45 }, { x: 0.75, y: 0.45 }, { x: 0.8, y: 0.2 }, { x: 0.7, y: 0.7 }
+          { x: 0.18, y: 0.32 }, { x: 0.22, y: 0.48 }, { x: 0.78, y: 0.48 }, { x: 0.82, y: 0.22 }, { x: 0.72, y: 0.72 }
         ];
-        var t = Date.now() / 1000;
+        var time = Date.now() / 1000;
         fielders.forEach(function(f) {
-          var dx = Math.sin(t * 2 + f.x * 10) * 3;
-          var dy = Math.cos(t * 1.5 + f.y * 8) * 3;
+          var dx = Math.sin(time * 2.2 + f.x * 12) * 5;
+          var dy = Math.cos(time * 1.8 + f.y * 10) * 5;
           ctx.fillStyle = '#9ca3af';
+          ctx.shadowBlur = 4;
           ctx.beginPath();
-          ctx.arc(f.x * w + dx, f.y * h + dy, 8, 0, Math.PI * 2);
+          ctx.arc(f.x * w + dx, f.y * h + dy, 14, 0, Math.PI * 2);
           ctx.fill();
         });
-
-        // Top scoreboard
-        var topBarHeight = 70;
-        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.shadowBlur = 0;
+        
+        // Broadcast-style top scoreboard with gradient
+        var topBarHeight = 85;
+        var topGrad = ctx.createLinearGradient(0, 0, 0, topBarHeight);
+        topGrad.addColorStop(0, 'rgba(0,0,0,0.9)');
+        topGrad.addColorStop(1, 'rgba(0,0,0,0.7)');
+        ctx.fillStyle = topGrad;
         ctx.fillRect(0, 0, w, topBarHeight);
         
         var flag1 = getFlagEmoji(matchInfo.team1);
         var flag2 = getFlagEmoji(matchInfo.team2);
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 18px "Inter", sans-serif';
-        ctx.fillText(flag1 + ' ' + matchInfo.team1, 12, 32);
-        ctx.fillText(matchInfo.team2 + ' ' + flag2, w - 12 - ctx.measureText(matchInfo.team2 + ' ' + flag2).width, 32);
+        ctx.font = 'bold 24px "Inter", sans-serif';
+        ctx.fillText(flag1 + ' ' + matchInfo.team1, 20, 45);
+        ctx.fillText(matchInfo.team2 + ' ' + flag2, w - 20 - ctx.measureText(matchInfo.team2 + ' ' + flag2).width, 45);
         
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 26px monospace';
+        ctx.font = 'bold 48px monospace';
         var scoreText = matchState.totalRuns + '/' + matchState.wickets;
-        var scoreX = w/2 - 60;
-        ctx.fillText(scoreText, scoreX, 45);
+        var scoreX = w/2 - 90;
+        ctx.fillText(scoreText, scoreX, 65);
         
         ctx.fillStyle = '#ccc';
-        ctx.font = '16px monospace';
+        ctx.font = '24px monospace';
         var oversText = '(' + matchState.overs + ')';
-        ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 8, 41);
+        ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 15, 60);
         
         var ppText = getPowerplayText(matchState.overs);
         if (ppText) {
           ctx.fillStyle = '#ffaa66';
-          ctx.font = 'bold 14px monospace';
-          ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 20, 45);
+          ctx.font = 'bold 18px monospace';
+          ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 25, 60);
         }
         
-        ctx.font = '10px monospace';
+        ctx.font = '14px monospace';
         ctx.fillStyle = '#aaa';
         var tossText = matchInfo.toss;
-        if (tossText.length > 35) tossText = tossText.substring(0, 35) + '...';
-        ctx.fillText(tossText, 12, 62);
-
-        // Bottom scoreboard
-        var bottomBarY = h - 95;
-        ctx.fillStyle = 'rgba(0,0,0,0.8)';
+        if (tossText.length > 45) tossText = tossText.substring(0, 45) + '...';
+        ctx.fillText(tossText, 20, 75);
+        
+        // Bottom scoreboard with enhanced styling
+        var bottomBarY = h - 110;
+        var bottomGrad = ctx.createLinearGradient(0, bottomBarY, 0, bottomBarY + 90);
+        bottomGrad.addColorStop(0, 'rgba(0,0,0,0.85)');
+        bottomGrad.addColorStop(1, 'rgba(0,0,0,0.7)');
+        ctx.fillStyle = bottomGrad;
         ctx.fillRect(0, bottomBarY, w, 90);
         
-        // Striker row
+        // Striker info
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px "Inter"';
+        ctx.font = 'bold 20px "Inter"';
         var strikerShort = currentDelivery ? getLastName(currentDelivery.striker) : '-';
-        ctx.fillText(strikerShort, 15, bottomBarY + 25);
+        ctx.fillText(strikerShort, 25, bottomBarY + 32);
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 20px monospace';
+        ctx.font = 'bold 28px monospace';
         var strikerRuns = '0', strikerBalls = '0';
         if (currentDelivery && cumulativeStats.battingStats[currentDelivery.striker]) {
           var s = cumulativeStats.battingStats[currentDelivery.striker];
           strikerRuns = s.runs;
           strikerBalls = s.balls;
         }
-        ctx.fillText(strikerRuns + '  ' + strikerBalls, 15, bottomBarY + 55);
+        ctx.fillText(strikerRuns + '  ' + strikerBalls, 25, bottomBarY + 70);
         
-        // Bowler row
+        // Bowler info
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 14px "Inter"';
+        ctx.font = 'bold 18px "Inter"';
         var bowlerShort = currentDelivery ? getLastName(currentDelivery.bowler) : '-';
         var bowlerStats = '';
         if (currentDelivery && cumulativeStats.bowlingStats[currentDelivery.bowler]) {
@@ -2186,16 +2354,16 @@
         } else {
           bowlerStats = '0.0 - 0 - 0';
         }
-        ctx.fillText(bowlerShort, w - 15 - ctx.measureText(bowlerShort).width, bottomBarY + 25);
+        ctx.fillText(bowlerShort, w - 200, bottomBarY + 32);
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 16px monospace';
-        ctx.fillText(bowlerStats, w - 15 - ctx.measureText(bowlerStats).width, bottomBarY + 55);
+        ctx.font = 'bold 20px monospace';
+        ctx.fillText(bowlerStats, w - 200, bottomBarY + 70);
         
-        // Non-striker row
+        // Non-striker info
         ctx.fillStyle = '#ccc';
-        ctx.font = '12px "Inter"';
+        ctx.font = '16px "Inter"';
         var nonStrikerShort = currentDelivery ? getLastName(currentDelivery.nonStriker) : '-';
-        ctx.fillText(nonStrikerShort, 15, bottomBarY + 78);
+        ctx.fillText(nonStrikerShort, 25, bottomBarY + 95);
         var nonStrikerRuns = '0', nonStrikerBalls = '0';
         if (currentDelivery && cumulativeStats.battingStats[currentDelivery.nonStriker]) {
           var ns = cumulativeStats.battingStats[currentDelivery.nonStriker];
@@ -2203,68 +2371,69 @@
           nonStrikerBalls = ns.balls;
         }
         ctx.fillStyle = '#facc15';
-        ctx.font = '12px monospace';
-        ctx.fillText(nonStrikerRuns + '  ' + nonStrikerBalls, 15 + 100, bottomBarY + 78);
+        ctx.font = '14px monospace';
+        ctx.fillText(nonStrikerRuns + '  ' + nonStrikerBalls, 25 + 130, bottomBarY + 95);
         
-        // Last ball result
+        // Last ball indicator
         if (lastBallResult.current) {
           ctx.fillStyle = '#facc15';
-          ctx.font = 'bold 14px monospace';
-          ctx.fillText('Last ball: ' + lastBallResult.current, w - 15 - ctx.measureText('Last ball: ' + lastBallResult.current).width, bottomBarY + 78);
+          ctx.font = 'bold 16px monospace';
+          ctx.fillText('Last ball: ' + lastBallResult.current, w - 150, bottomBarY + 95);
         }
-
+        
         // Commentary ticker
         var lastComment = (commentaryLog.length > 0) ? commentaryLog[0].text : "No commentary yet";
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(0, bottomBarY - 28, w, 28);
-        ctx.font = 'italic 10px "JetBrains Mono"';
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(0, bottomBarY - 35, w, 35);
+        ctx.font = 'italic 14px "JetBrains Mono"';
         ctx.fillStyle = '#e2e8f0';
-        ctx.fillText("🎙️ " + lastComment.slice(0, 120), 10, bottomBarY - 8);
-
-        // Effect animation
+        ctx.fillText("🎙️ " + lastComment.slice(0, 130), 20, bottomBarY - 12);
+        
+        // Enhanced effect animation with scaling
         if (effect) {
-          var elapsed = (Date.now() - effect.startTime) / 1000;
-          var alpha = Math.max(0, 1 - elapsed);
-          var radius = 50 * (1 - elapsed) + 20;
+          var elapsed = Math.min(1, (Date.now() - effect.startTime) / 600);
+          var alpha = Math.max(0, 1 - elapsed * 1.5);
+          var scale = 1 + (1 - elapsed) * 0.5;
+          var radius = 70 * (1 - elapsed) + 30;
           var color = '#ffaa44';
           var label = '';
           if (effect.type === 'boundary') { color = '#ff8800'; label = '4'; }
           if (effect.type === 'six') { color = '#ff3300'; label = '6'; }
           if (effect.type === 'wicket') { color = '#aa66ff'; label = 'W'; }
           if (effect.type === 'dot') color = '#88aaff';
+          
           ctx.save();
           ctx.globalAlpha = alpha;
           ctx.beginPath();
-          ctx.arc(batsmanX + 40, batsmanY + 40, radius, 0, Math.PI * 2);
+          ctx.arc(batsmanX + 60, batsmanY + 60, radius, 0, Math.PI * 2);
           ctx.fillStyle = color;
           ctx.fill();
           if (label) {
-            ctx.font = "bold " + Math.floor(28 * (1 - elapsed * 0.5)) + "px \"Inter\"";
+            ctx.font = "bold " + Math.floor(48 * (1 + (1 - elapsed))) + "px \"Inter\"";
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(label, batsmanX + 30, batsmanY + 25);
-          }
-          if (effect.type === 'boundary' || effect.type === 'six') {
-            for (var i = 0; i < 6; i++) {
-              var angle = (i / 6) * Math.PI * 2;
-              var dx = Math.cos(angle) * (radius + 15);
-              var dy = Math.sin(angle) * (radius + 15);
-              ctx.beginPath();
-              ctx.moveTo(batsmanX + 40, batsmanY + 40);
-              ctx.lineTo(batsmanX + 40 + dx, batsmanY + 40 + dy);
-              ctx.lineWidth = 3;
-              ctx.strokeStyle = color;
-              ctx.stroke();
-            }
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = color;
+            ctx.fillText(label, batsmanX + 42, batsmanY + 78);
           }
           ctx.restore();
         }
         
+        // Draw scorecard overlay if active
         if (showScorecard && scorecardData) {
           drawScorecardOverlay(ctx, w, h);
         }
       }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, cumulativeStats, lastBallResult, showScorecard, scorecardData, scorecardType]);
 
-      React.useEffect(function() { drawCanvas(); }, [drawCanvas]);
+      // Animation frame for smooth rendering
+      React.useEffect(() => {
+        let frameId;
+        const render = () => {
+          drawCanvas();
+          frameId = requestAnimationFrame(render);
+        };
+        render();
+        return () => cancelAnimationFrame(frameId);
+      }, [drawCanvas]);
 
       var startRecording = function() {
         if (!canvasRef.current) {
@@ -2467,7 +2636,7 @@
 
               <div className="bg-gray-800/50 rounded-2xl p-5 border border-gray-700">
                 <h3 className="text-lg font-semibold text-teal-300 mb-3">Broadcast Preview</h3>
-                <canvas ref={canvasRef} width={600} height={400} className="w-full rounded-xl border border-teal-500/40" style={{ aspectRatio: '600/400' }}></canvas>
+                <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="w-full rounded-xl border border-teal-500/40" style={{ aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}` }}></canvas>
               </div>
             </div>
           </div>
@@ -2478,9 +2647,7 @@
       );
     };
 
-    // --------------------------------------------------------------
     // Initialize app
-    // --------------------------------------------------------------
     function initApp() {
       try {
         var rootElement = document.getElementById('root');
