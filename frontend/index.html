@@ -174,57 +174,81 @@
     }
 
     // --------------------------------------------------------------
-    // Player image loading
+    // Wikipedia API for player images
     // --------------------------------------------------------------
     let playerImageCache = new Map();
+    let teamPlayersCache = new Map();
 
-    function getRandomColorFromName(name) {
-      const colors = ['1e3c72', '2a5298', '1e7e34', '28a745', 'dc3545', 'fd7e14', '6f42c1', '20c997', '17a2b8', 'e83e8c'];
-      let hash = 0;
-      for (let i = 0; i < name.length; i++) {
-        hash = ((hash << 5) - hash) + name.charCodeAt(i);
-        hash |= 0;
+    async function fetchPlayerImageFromWikipedia(playerName) {
+      if (!playerName) return null;
+      
+      // Check cache
+      if (playerImageCache.has(playerName)) {
+        return playerImageCache.get(playerName);
       }
-      return colors[Math.abs(hash) % colors.length];
+      
+      // Format name for Wikipedia API (replace spaces with underscores)
+      const formattedName = playerName.replace(/ /g, '_');
+      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(formattedName)}`;
+      
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        
+        if (data.thumbnail && data.thumbnail.source) {
+          // Load the image
+          const img = new Image();
+          img.crossOrigin = "Anonymous";
+          
+          return new Promise((resolve) => {
+            img.onload = () => {
+              playerImageCache.set(playerName, img);
+              resolve(img);
+            };
+            img.onerror = () => {
+              console.warn(`Failed to load image for ${playerName} from Wikipedia`);
+              playerImageCache.set(playerName, null);
+              resolve(null);
+            };
+            img.src = data.thumbnail.source;
+          });
+        } else {
+          playerImageCache.set(playerName, null);
+          return null;
+        }
+      } catch (error) {
+        console.warn(`Wikipedia API error for ${playerName}:`, error);
+        playerImageCache.set(playerName, null);
+        return null;
+      }
     }
 
-    function getPlayerImageUrl(fullName) {
-      if (!fullName) return null;
-      const seed = encodeURIComponent(fullName);
-      return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&backgroundColor=0D8ABC&radius=50&size=200&mouth=smile&eyes=default&eyebrows=default&hair=default&clothing=shirt&accessories=blank&skinColor=variant01`;
-    }
-
-    async function loadPlayerImage(fullName) {
-      if (!fullName) return null;
-      if (playerImageCache.has(fullName)) {
-        const cached = playerImageCache.get(fullName);
-        if (cached && cached.complete && cached.naturalWidth > 0) return cached;
+    async function loadTeamPlayers(teamName, playerNames) {
+      const cacheKey = teamName;
+      if (teamPlayersCache.has(cacheKey)) {
+        return teamPlayersCache.get(cacheKey);
       }
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-        let attempts = 0;
-        const urls = [getPlayerImageUrl(fullName)];
-        const tryNext = () => {
-          if (attempts >= urls.length) {
-            playerImageCache.set(fullName, null);
-            resolve(null);
-            return;
-          }
-          img.src = urls[attempts];
-          attempts++;
-        };
-        img.onload = () => {
-          playerImageCache.set(fullName, img);
-          resolve(img);
-        };
-        img.onerror = () => tryNext();
-        tryNext();
-      });
+      
+      const players = [];
+      // Take first 8 players maximum
+      const namesToLoad = playerNames.slice(0, 8);
+      
+      for (const name of namesToLoad) {
+        const image = await fetchPlayerImageFromWikipedia(name);
+        players.push({
+          name: getLastName(name),
+          fullName: name,
+          image: image
+        });
+      }
+      
+      teamPlayersCache.set(cacheKey, players);
+      return players;
     }
 
     // --------------------------------------------------------------
-    // TTS and Audio functions (abbreviated for brevity)
+    // TTS and Audio functions (abbreviated)
     // --------------------------------------------------------------
     let audioPlayer = null;
     let audioQueue = [];
@@ -737,6 +761,8 @@
         umpires: umpires
       };
       var inningsData = [];
+      var allPlayers = new Set();
+      
       for (var innIdx = 0; innIdx < json.innings.length; innIdx++) {
         var inn = json.innings[innIdx];
         var team = inn.team;
@@ -795,6 +821,13 @@
               nonStriker: delivery.non_striker,
               bowler: bowler
             });
+            
+            // Collect player names
+            allPlayers.add(striker);
+            allPlayers.add(bowler);
+            if (delivery.non_striker) allPlayers.add(delivery.non_striker);
+            if (wicketPlayer) allPlayers.add(wicketPlayer);
+            if (wicketFielder) allPlayers.add(wicketFielder);
           }
         }
 
@@ -812,7 +845,25 @@
         var firstInningsScore = inningsData[0].deliveries.reduce(function(sum, d) { return sum + d.runs; }, 0);
         target = firstInningsScore + 1;
       }
-      return { matchInfo: matchInfo, inningsData: inningsData, target: target };
+      
+      // Separate players by team
+      var team1Players = [];
+      var team2Players = [];
+      for (var player of allPlayers) {
+        // Check which team the player belongs to based on innings data
+        var inTeam1 = false;
+        var inTeam2 = false;
+        for (var inn of inningsData) {
+          if (inn.battingStats[player] || inn.bowlingStats[player]) {
+            if (inn.team === matchInfo.team1) inTeam1 = true;
+            if (inn.team === matchInfo.team2) inTeam2 = true;
+          }
+        }
+        if (inTeam1) team1Players.push(player);
+        if (inTeam2) team2Players.push(player);
+      }
+      
+      return { matchInfo: matchInfo, inningsData: inningsData, target: target, team1Players: team1Players, team2Players: team2Players };
     }
 
     function computeStateUpTo(deliveries, maxIndex) {
@@ -1111,12 +1162,14 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator with fixed score/overs positioning
+    // MatchSimulator with team member images on sides
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
       var matchInfo = props.matchData.matchInfo;
       var initialTarget = props.matchData.target;
+      var team1Players = props.matchData.team1Players || [];
+      var team2Players = props.matchData.team2Players || [];
       var onFileUpload = props.onFileUpload;
       var uploadError = props.uploadError;
 
@@ -1131,7 +1184,8 @@
       var [target, setTarget] = React.useState(initialTarget);
       var [firstInningsStats, setFirstInningsStats] = React.useState(null);
       var [matchResult, setMatchResult] = React.useState(null);
-      var [playerImagesLoaded, setPlayerImagesLoaded] = React.useState(false);
+      var [team1PlayersData, setTeam1PlayersData] = React.useState([]);
+      var [team2PlayersData, setTeam2PlayersData] = React.useState([]);
       var lastOverReported = React.useRef(-1);
       var lastBallResult = React.useRef(null);
       
@@ -1193,6 +1247,19 @@
         }
         return "";
       };
+
+      // Load team player images
+      React.useEffect(() => {
+        async function loadTeamImages() {
+          const team1Data = await loadTeamPlayers(matchInfo.team1, team1Players);
+          const team2Data = await loadTeamPlayers(matchInfo.team2, team2Players);
+          setTeam1PlayersData(team1Data);
+          setTeam2PlayersData(team2Data);
+        }
+        if (team1Players.length > 0 || team2Players.length > 0) {
+          loadTeamImages();
+        }
+      }, [team1Players, team2Players, matchInfo.team1, matchInfo.team2]);
 
       var buildBattingScorecard = function() {
         var battingList = [];
@@ -1358,27 +1425,6 @@
           else setAmbience(false);
         }
       }, [ambientEnabled, muteAudio]);
-
-      React.useEffect(() => {
-        async function preloadAllPlayers() {
-          const playerNamesSet = new Set();
-          for (let i = 0; i < inningsData.length; i++) {
-            const innings = inningsData[i];
-            Object.keys(innings.battingStats).forEach(name => playerNamesSet.add(name));
-            Object.keys(innings.bowlingStats).forEach(name => playerNamesSet.add(name));
-            innings.deliveries.forEach(d => {
-              if (d.striker) playerNamesSet.add(d.striker);
-              if (d.nonStriker) playerNamesSet.add(d.nonStriker);
-              if (d.bowler) playerNamesSet.add(d.bowler);
-              if (d.wicketPlayer) playerNamesSet.add(d.wicketPlayer);
-            });
-          }
-          const loadPromises = Array.from(playerNamesSet).map(name => loadPlayerImage(name));
-          await Promise.all(loadPromises);
-          setPlayerImagesLoaded(true);
-        }
-        preloadAllPlayers();
-      }, [inningsData]);
 
       // Settings UI initialization
       React.useEffect(function() {
@@ -1955,7 +2001,85 @@
         }
       };
 
-      // Main canvas drawing with fixed score/overs positioning
+      // Draw team member panels on sides
+      var drawTeamPanel = function(ctx, x, y, width, height, teamName, players, isLeftSide) {
+        // Panel background
+        ctx.fillStyle = 'rgba(0, 30, 20, 0.85)';
+        ctx.fillRect(x, y, width, height);
+        
+        // Border accent
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 5, y + 5, width - 10, height - 10);
+        
+        // Team name header
+        ctx.fillStyle = '#facc15';
+        ctx.font = 'bold 20px "Inter"';
+        ctx.fillText(teamName, x + 15, y + 35);
+        
+        // Separator line
+        ctx.beginPath();
+        ctx.moveTo(x + 15, y + 45);
+        ctx.lineTo(x + width - 15, y + 45);
+        ctx.strokeStyle = '#aaa';
+        ctx.stroke();
+        
+        // Player list
+        var playerY = y + 70;
+        var avatarSize = 40;
+        var rowHeight = 55;
+        
+        players.slice(0, 8).forEach((player, idx) => {
+          // Avatar background
+          ctx.fillStyle = '#1a3a2a';
+          ctx.beginPath();
+          ctx.arc(x + 30, playerY + 20, avatarSize/2, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Player image if available
+          if (player.image && player.image.complete && player.image.naturalWidth > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x + 30, playerY + 20, avatarSize/2 - 2, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(player.image, x + 30 - avatarSize/2 + 2, playerY + 20 - avatarSize/2 + 2, avatarSize - 4, avatarSize - 4);
+            ctx.restore();
+          } else {
+            // Placeholder initial
+            ctx.fillStyle = '#3b82f6';
+            ctx.beginPath();
+            ctx.arc(x + 30, playerY + 20, avatarSize/2 - 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 18px "Inter"';
+            ctx.fillText(player.name.charAt(0).toUpperCase(), x + 22, playerY + 28);
+          }
+          
+          // Player name
+          ctx.fillStyle = '#fff';
+          ctx.font = '14px "Inter"';
+          ctx.fillText(player.name, x + 55, playerY + 25);
+          
+          // Role indicator based on player's stats (simplified)
+          ctx.fillStyle = '#aaa';
+          ctx.font = '10px monospace';
+          var role = "Batsman";
+          if (cumulativeStats.bowlingStats[player.fullName] && cumulativeStats.bowlingStats[player.fullName].wickets > 0) {
+            role = "Bowler";
+          }
+          ctx.fillText(role, x + 55, playerY + 42);
+          
+          playerY += rowHeight;
+          if (playerY + rowHeight > y + height - 20) return;
+        });
+        
+        // Player count indicator
+        ctx.fillStyle = '#888';
+        ctx.font = '10px monospace';
+        ctx.fillText(`${players.length} players`, x + 15, y + height - 15);
+      };
+
+      // Main canvas drawing with team panels
       var drawCanvas = React.useCallback(function() {
         var canvas = canvasRef.current;
         if (!canvas) return;
@@ -2127,7 +2251,18 @@
           ctx.fill();
         });
         
-        // Top scoreboard - FIXED: score and overs properly spaced
+        // Draw team panels on left and right dark green areas
+        var panelWidth = 220;
+        var panelHeight = h - 180;
+        var panelY = 90;
+        
+        // Left panel - Team 1
+        drawTeamPanel(ctx, 15, panelY, panelWidth, panelHeight, matchInfo.team1, team1PlayersData, true);
+        
+        // Right panel - Team 2
+        drawTeamPanel(ctx, w - panelWidth - 15, panelY, panelWidth, panelHeight, matchInfo.team2, team2PlayersData, false);
+        
+        // Top scoreboard
         var topBarHeight = 85;
         var topGrad = ctx.createLinearGradient(0, 0, 0, topBarHeight);
         topGrad.addColorStop(0, 'rgba(0,0,0,0.9)');
@@ -2142,20 +2277,17 @@
         ctx.fillText(flag1 + ' ' + matchInfo.team1, 20, 45);
         ctx.fillText(matchInfo.team2 + ' ' + flag2, w - 20 - ctx.measureText(matchInfo.team2 + ' ' + flag2).width, 45);
         
-        // Score and overs with proper spacing
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 48px monospace';
         var scoreText = matchState.totalRuns + '/' + matchState.wickets;
-        var scoreX = w/2 - 110; // Positioned more left to create space
+        var scoreX = w/2 - 110;
         ctx.fillText(scoreText, scoreX, 65);
         
         ctx.fillStyle = '#ccc';
         ctx.font = '28px monospace';
         var oversText = '(' + matchState.overs + ')';
-        // Position overs text after the score with 15px gap
         ctx.fillText(oversText, scoreX + ctx.measureText(scoreText).width + 15, 62);
         
-        // Powerplay indicator - positioned after overs
         var ppText = getPowerplayText(matchState.overs);
         if (ppText) {
           ctx.fillStyle = '#ffaa66';
@@ -2163,7 +2295,6 @@
           ctx.fillText(ppText, scoreX + ctx.measureText(scoreText).width + ctx.measureText(oversText).width + 25, 60);
         }
         
-        // Toss info - now fully visible with larger top bar
         ctx.font = '14px monospace';
         ctx.fillStyle = '#aaa';
         var tossText = matchInfo.toss;
@@ -2269,7 +2400,7 @@
         if (showScorecard && scorecardData) {
           drawScorecardOverlay(ctx, w, h);
         }
-      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, cumulativeStats, lastBallResult, showScorecard, scorecardData, scorecardType]);
+      }, [matchState, currentDelivery, commentaryLog, matchInfo, currentInningsIdx, target, firstInningsStats, effect, batsmanAnim, bowlerAnim, playerImageCache, cumulativeStats, lastBallResult, showScorecard, scorecardData, scorecardType, team1PlayersData, team2PlayersData]);
 
       // Animation frame
       React.useEffect(() => {
