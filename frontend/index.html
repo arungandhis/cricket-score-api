@@ -141,7 +141,7 @@
     }
 
     // --------------------------------------------------------------
-    // Wikipedia player images
+    // Wikipedia player images (enhanced)
     // --------------------------------------------------------------
     var playerImageCache = new Map();
     var teamPlayersCache = new Map();
@@ -149,25 +149,74 @@
     async function fetchPlayerImageFromWikipedia(playerName) {
       if (!playerName) return null;
       if (playerImageCache.has(playerName)) return playerImageCache.get(playerName);
-      var formatted = playerName.replace(/ /g, '_');
-      try {
-        var res = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(formatted));
-        if (!res.ok) throw new Error();
-        var data = await res.json();
-        if (data.thumbnail && data.thumbnail.source) {
-          var img = new Image();
-          img.crossOrigin = "Anonymous";
-          return new Promise(function(resolve) {
-            img.onload = function() { playerImageCache.set(playerName, img); resolve(img); };
-            img.onerror = function() { playerImageCache.set(playerName, null); resolve(null); };
-            img.src = data.thumbnail.source;
-          });
-        } else {
-          playerImageCache.set(playerName, null);
-          return null;
+
+      async function tryFetchImage(pageTitle) {
+        // Try REST API summary
+        try {
+          const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle)}`;
+          const res = await fetch(summaryUrl);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.thumbnail && data.thumbnail.source) {
+              return data.thumbnail.source;
+            }
+          }
+        } catch (e) { /* ignore */ }
+
+        // Try action API with pageimages
+        try {
+          const actionUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&origin=*&titles=${encodeURIComponent(pageTitle)}&pithumbsize=200`;
+          const res = await fetch(actionUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const pages = data.query && data.query.pages;
+            if (pages) {
+              const firstPage = Object.values(pages)[0];
+              if (firstPage && firstPage.thumbnail && firstPage.thumbnail.source) {
+                return firstPage.thumbnail.source;
+              }
+            }
+          }
+        } catch (e) { /* ignore */ }
+
+        return null;
+      }
+
+      // Clean name: remove (c), (wk), etc.
+      let cleanName = playerName.replace(/\s*\([^)]*\)/g, '').trim();
+      let imgUrl = await tryFetchImage(cleanName);
+
+      // If no image, try without middle initial (e.g., "V. Kohli" -> "Virat Kohli")
+      if (!imgUrl && cleanName.includes(' ')) {
+        const parts = cleanName.split(' ');
+        if (parts.length >= 2 && parts[0].length <= 3 && parts[0].includes('.')) {
+          const withoutInitial = parts.slice(1).join(' ');
+          imgUrl = await tryFetchImage(withoutInitial);
         }
-      } catch(e) {
-        console.warn(e);
+      }
+
+      // If still no image, try adding " (cricketer)"
+      if (!imgUrl && !cleanName.toLowerCase().includes('cricketer')) {
+        imgUrl = await tryFetchImage(cleanName + ' (cricketer)');
+      }
+
+      // If we got a URL, load the image
+      if (imgUrl) {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        return new Promise((resolve) => {
+          img.onload = () => {
+            playerImageCache.set(playerName, img);
+            resolve(img);
+          };
+          img.onerror = () => {
+            console.warn(`Failed to load image for ${playerName} from ${imgUrl}`);
+            playerImageCache.set(playerName, null);
+            resolve(null);
+          };
+          img.src = imgUrl;
+        });
+      } else {
         playerImageCache.set(playerName, null);
         return null;
       }
@@ -186,7 +235,7 @@
     }
 
     // --------------------------------------------------------------
-    // TTS + Audio (no optional chaining, no trailing commas)
+    // TTS + Audio (full implementation)
     // --------------------------------------------------------------
     var audioPlayer = null;
     var audioQueue = [];
