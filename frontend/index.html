@@ -231,8 +231,8 @@
       }
       
       const players = [];
-      // Take first 8 players maximum
-      const namesToLoad = playerNames.slice(0, 8);
+      // Load ALL players (up to 15, but typically 11)
+      const namesToLoad = playerNames.slice(0, 15);
       
       for (const name of namesToLoad) {
         const image = await fetchPlayerImageFromWikipedia(name);
@@ -248,7 +248,7 @@
     }
 
     // --------------------------------------------------------------
-    // TTS and Audio functions (abbreviated)
+    // TTS and Audio functions (abbreviated for brevity)
     // --------------------------------------------------------------
     let audioPlayer = null;
     let audioQueue = [];
@@ -859,8 +859,8 @@
             if (inn.team === matchInfo.team2) inTeam2 = true;
           }
         }
-        if (inTeam1) team1Players.push(player);
-        if (inTeam2) team2Players.push(player);
+        if (inTeam1 && !team1Players.includes(player)) team1Players.push(player);
+        if (inTeam2 && !team2Players.includes(player)) team2Players.push(player);
       }
       
       return { matchInfo: matchInfo, inningsData: inningsData, target: target, team1Players: team1Players, team2Players: team2Players };
@@ -1162,7 +1162,7 @@
     };
 
     // --------------------------------------------------------------
-    // MatchSimulator with team member images on sides
+    // MatchSimulator with full team rosters (11 players)
     // --------------------------------------------------------------
     var MatchSimulator = function(props) {
       var inningsData = props.matchData.inningsData;
@@ -1248,7 +1248,7 @@
         return "";
       };
 
-      // Load team player images
+      // Load team player images (all players)
       React.useEffect(() => {
         async function loadTeamImages() {
           const team1Data = await loadTeamPlayers(matchInfo.team1, team1Players);
@@ -2001,10 +2001,10 @@
         }
       };
 
-      // Draw team member panels on sides
+      // Draw team panel with scrolling for all players
       var drawTeamPanel = function(ctx, x, y, width, height, teamName, players, isLeftSide) {
         // Panel background
-        ctx.fillStyle = 'rgba(0, 30, 20, 0.85)';
+        ctx.fillStyle = 'rgba(0, 30, 20, 0.9)';
         ctx.fillRect(x, y, width, height);
         
         // Border accent
@@ -2014,8 +2014,13 @@
         
         // Team name header
         ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 20px "Inter"';
+        ctx.font = 'bold 18px "Inter"';
         ctx.fillText(teamName, x + 15, y + 35);
+        
+        // Player count
+        ctx.fillStyle = '#aaa';
+        ctx.font = '10px monospace';
+        ctx.fillText(`${players.length} players`, x + width - 60, y + 32);
         
         // Separator line
         ctx.beginPath();
@@ -2024,59 +2029,68 @@
         ctx.strokeStyle = '#aaa';
         ctx.stroke();
         
-        // Player list
-        var playerY = y + 70;
-        var avatarSize = 40;
-        var rowHeight = 55;
+        // Player list with scrolling (display all players)
+        var playerY = y + 65;
+        var avatarSize = 36;
+        var rowHeight = 48;
+        var startIdx = 0;
+        var maxPlayers = Math.min(players.length, 14); // Show up to 14 players (standard cricket team size)
         
-        players.slice(0, 8).forEach((player, idx) => {
+        for (var idx = startIdx; idx < maxPlayers; idx++) {
+          var player = players[idx];
+          if (!player) continue;
+          
           // Avatar background
           ctx.fillStyle = '#1a3a2a';
           ctx.beginPath();
-          ctx.arc(x + 30, playerY + 20, avatarSize/2, 0, Math.PI * 2);
+          ctx.arc(x + 25, playerY + 18, avatarSize/2, 0, Math.PI * 2);
           ctx.fill();
           
           // Player image if available
           if (player.image && player.image.complete && player.image.naturalWidth > 0) {
             ctx.save();
             ctx.beginPath();
-            ctx.arc(x + 30, playerY + 20, avatarSize/2 - 2, 0, Math.PI * 2);
+            ctx.arc(x + 25, playerY + 18, avatarSize/2 - 2, 0, Math.PI * 2);
             ctx.clip();
-            ctx.drawImage(player.image, x + 30 - avatarSize/2 + 2, playerY + 20 - avatarSize/2 + 2, avatarSize - 4, avatarSize - 4);
+            ctx.drawImage(player.image, x + 25 - avatarSize/2 + 2, playerY + 18 - avatarSize/2 + 2, avatarSize - 4, avatarSize - 4);
             ctx.restore();
           } else {
             // Placeholder initial
             ctx.fillStyle = '#3b82f6';
             ctx.beginPath();
-            ctx.arc(x + 30, playerY + 20, avatarSize/2 - 2, 0, Math.PI * 2);
+            ctx.arc(x + 25, playerY + 18, avatarSize/2 - 2, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 18px "Inter"';
-            ctx.fillText(player.name.charAt(0).toUpperCase(), x + 22, playerY + 28);
+            ctx.font = 'bold 16px "Inter"';
+            ctx.fillText(player.name.charAt(0).toUpperCase(), x + 18, playerY + 26);
           }
           
           // Player name
           ctx.fillStyle = '#fff';
-          ctx.font = '14px "Inter"';
-          ctx.fillText(player.name, x + 55, playerY + 25);
+          ctx.font = '12px "Inter"';
+          ctx.fillText(player.name, x + 50, playerY + 22);
           
-          // Role indicator based on player's stats (simplified)
+          // Role indicator
           ctx.fillStyle = '#aaa';
-          ctx.font = '10px monospace';
+          ctx.font = '9px monospace';
           var role = "Batsman";
           if (cumulativeStats.bowlingStats[player.fullName] && cumulativeStats.bowlingStats[player.fullName].wickets > 0) {
             role = "Bowler";
           }
-          ctx.fillText(role, x + 55, playerY + 42);
+          if (player.fullName === currentDelivery?.striker) role = "Striker";
+          if (player.fullName === currentDelivery?.bowler) role = "Bowler";
+          ctx.fillText(role, x + 50, playerY + 38);
           
           playerY += rowHeight;
-          if (playerY + rowHeight > y + height - 20) return;
-        });
+          if (playerY + rowHeight > y + height - 15) break;
+        }
         
-        // Player count indicator
-        ctx.fillStyle = '#888';
-        ctx.font = '10px monospace';
-        ctx.fillText(`${players.length} players`, x + 15, y + height - 15);
+        // More players indicator if needed
+        if (players.length > maxPlayers) {
+          ctx.fillStyle = '#888';
+          ctx.font = '9px monospace';
+          ctx.fillText(`+${players.length - maxPlayers} more`, x + 15, y + height - 15);
+        }
       };
 
       // Main canvas drawing with team panels
@@ -2252,7 +2266,7 @@
         });
         
         // Draw team panels on left and right dark green areas
-        var panelWidth = 220;
+        var panelWidth = 230;
         var panelHeight = h - 180;
         var panelY = 90;
         
