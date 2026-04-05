@@ -42,7 +42,7 @@
 
   <script type="text/babel" data-presets="es2015,react,stage-2">
     // --------------------------------------------------------------
-    // Helper functions
+    // Helper functions (unchanged)
     // --------------------------------------------------------------
     const getLastName = (fullName) => {
       if (!fullName) return "player";
@@ -200,7 +200,6 @@
         imgUrl = await tryFetchImage(cleanName + ' (cricketer)');
       }
 
-      // If we got a URL, load the image
       if (imgUrl) {
         const img = new Image();
         img.crossOrigin = "Anonymous";
@@ -210,7 +209,6 @@
             resolve(img);
           };
           img.onerror = () => {
-            console.warn(`Failed to load image for ${playerName} from ${imgUrl}`);
             playerImageCache.set(playerName, null);
             resolve(null);
           };
@@ -548,7 +546,7 @@
     }
 
     // --------------------------------------------------------------
-    // Match parsing
+    // Match parsing (improved player collection)
     // --------------------------------------------------------------
     function parseCricsheetJSON(json) {
       if (!json.info || !json.innings || json.innings.length < 2) throw new Error("Invalid Cricsheet: need two innings");
@@ -570,13 +568,18 @@
         umpires: umpires
       };
       var inningsData = [];
-      var allPlayers = new Set();
+
+      // Collect players per team directly from innings data
+      var team1PlayerSet = new Set();
+      var team2PlayerSet = new Set();
+
       for (var innIdx = 0; innIdx < json.innings.length; innIdx++) {
         var inn = json.innings[innIdx];
         var team = inn.team;
         var deliveries = [];
         var batting = {};
         var bowling = {};
+
         for (var o = 0; o < inn.overs.length; o++) {
           var overObj = inn.overs[o];
           var overNum = overObj.over;
@@ -625,13 +628,24 @@
               nonStriker: delivery.non_striker,
               bowler: bowler
             });
-            allPlayers.add(striker);
-            allPlayers.add(bowler);
-            if (delivery.non_striker) allPlayers.add(delivery.non_striker);
-            if (wicketPlayer) allPlayers.add(wicketPlayer);
-            if (wicketFielder) allPlayers.add(wicketFielder);
+
+            // Add players to the correct team set
+            if (team === matchInfo.team1) {
+              team1PlayerSet.add(striker);
+              team1PlayerSet.add(bowler);
+              if (delivery.non_striker) team1PlayerSet.add(delivery.non_striker);
+              if (wicketPlayer) team1PlayerSet.add(wicketPlayer);
+              if (wicketFielder) team1PlayerSet.add(wicketFielder);
+            } else if (team === matchInfo.team2) {
+              team2PlayerSet.add(striker);
+              team2PlayerSet.add(bowler);
+              if (delivery.non_striker) team2PlayerSet.add(delivery.non_striker);
+              if (wicketPlayer) team2PlayerSet.add(wicketPlayer);
+              if (wicketFielder) team2PlayerSet.add(wicketFielder);
+            }
           }
         }
+
         for (var b in bowling) {
           var balls = bowling[b].legalBalls;
           bowling[b].overs = (Math.floor(balls / 6) + (balls % 6) / 10).toFixed(1);
@@ -639,26 +653,17 @@
         }
         inningsData.push({ team: team, deliveries: deliveries, battingStats: batting, bowlingStats: bowling });
       }
+
       var target = null;
       if (inningsData.length === 2) {
         var firstTotal = 0;
         for (var i = 0; i < inningsData[0].deliveries.length; i++) firstTotal += inningsData[0].deliveries[i].runs;
         target = firstTotal + 1;
       }
-      var team1Players = [];
-      var team2Players = [];
-      for (var p of allPlayers) {
-        var in1 = false;
-        var in2 = false;
-        for (var inn of inningsData) {
-          if (inn.battingStats[p] || inn.bowlingStats[p]) {
-            if (inn.team === matchInfo.team1) in1 = true;
-            if (inn.team === matchInfo.team2) in2 = true;
-          }
-        }
-        if (in1) team1Players.push(p);
-        if (in2) team2Players.push(p);
-      }
+
+      var team1Players = Array.from(team1PlayerSet);
+      var team2Players = Array.from(team2PlayerSet);
+
       return { matchInfo: matchInfo, inningsData: inningsData, target: target, team1Players: team1Players, team2Players: team2Players };
     }
 
@@ -1674,6 +1679,31 @@
           ctx.font = 'bold 18px monospace';
           ctx.fillText(ppText, scX + ctx.measureText(scText).width + ctx.measureText(ovText).width + 25, 60);
         }
+        
+        // NEW: Show striker and non-striker with scores at the top
+        ctx.font = '18px monospace';
+        ctx.fillStyle = '#e2e8f0';
+        var strikerDisplay = '';
+        var nonStrikerDisplay = '';
+        if (currentDelivery && cumulativeStats.battingStats) {
+          var strikerStats = cumulativeStats.battingStats[currentDelivery.striker];
+          var nonStrikerStats = cumulativeStats.battingStats[currentDelivery.nonStriker];
+          if (strikerStats) {
+            strikerDisplay = getLastName(currentDelivery.striker) + ' ' + strikerStats.runs + '(' + strikerStats.balls + ')';
+          } else {
+            strikerDisplay = getLastName(currentDelivery.striker) + ' 0(0)';
+          }
+          if (nonStrikerStats) {
+            nonStrikerDisplay = getLastName(currentDelivery.nonStriker) + ' ' + nonStrikerStats.runs + '(' + nonStrikerStats.balls + ')';
+          } else if (currentDelivery.nonStriker) {
+            nonStrikerDisplay = getLastName(currentDelivery.nonStriker) + ' 0(0)';
+          }
+        }
+        var batsmanText = 'Striker: ' + strikerDisplay;
+        var nonStrikerText = 'Non‑striker: ' + nonStrikerDisplay;
+        ctx.fillText(batsmanText, 20, 95);
+        ctx.fillText(nonStrikerText, w - ctx.measureText(nonStrikerText).width - 20, 95);
+        
         ctx.font = '14px monospace';
         ctx.fillStyle = '#aaa';
         var tossShort = matchInfo.toss;
