@@ -1479,8 +1479,13 @@
             ctx.fillText(p.name.charAt(0).toUpperCase(), x+18, py+26);
           }
           ctx.fillStyle = '#fff';
-          ctx.font = '12px "Inter"';
-          ctx.fillText(p.name, x+50, py+22);
+          ctx.font = '10px "Inter"';
+          // Show full name (truncate if too long)
+          var displayName = p.fullName;
+          if (ctx.measureText(displayName).width > w - 60) {
+            displayName = displayName.substring(0, 15) + '...';
+          }
+          ctx.fillText(displayName, x+50, py+22);
           ctx.fillStyle = '#aaa';
           ctx.font = '9px monospace';
           var role = "Batsman";
@@ -1680,29 +1685,31 @@
           ctx.fillText(ppText, scX + ctx.measureText(scText).width + ctx.measureText(ovText).width + 25, 60);
         }
         
-        // NEW: Show striker and non-striker with scores at the top
-        ctx.font = '18px monospace';
-        ctx.fillStyle = '#e2e8f0';
-        var strikerDisplay = '';
-        var nonStrikerDisplay = '';
+        // NEW: Show striker and non-striker full names with scores in top centre of the dark green area (above the pitch)
+        ctx.font = 'bold 20px "Inter"';
+        ctx.fillStyle = '#facc15';
+        var strikerFull = currentDelivery ? currentDelivery.striker : '';
+        var nonStrikerFull = currentDelivery ? currentDelivery.nonStriker : '';
+        var strikerStatsText = '', nonStrikerStatsText = '';
         if (currentDelivery && cumulativeStats.battingStats) {
-          var strikerStats = cumulativeStats.battingStats[currentDelivery.striker];
-          var nonStrikerStats = cumulativeStats.battingStats[currentDelivery.nonStriker];
-          if (strikerStats) {
-            strikerDisplay = getLastName(currentDelivery.striker) + ' ' + strikerStats.runs + '(' + strikerStats.balls + ')';
-          } else {
-            strikerDisplay = getLastName(currentDelivery.striker) + ' 0(0)';
-          }
-          if (nonStrikerStats) {
-            nonStrikerDisplay = getLastName(currentDelivery.nonStriker) + ' ' + nonStrikerStats.runs + '(' + nonStrikerStats.balls + ')';
-          } else if (currentDelivery.nonStriker) {
-            nonStrikerDisplay = getLastName(currentDelivery.nonStriker) + ' 0(0)';
-          }
+          var sStats = cumulativeStats.battingStats[currentDelivery.striker];
+          var nsStats = cumulativeStats.battingStats[currentDelivery.nonStriker];
+          strikerStatsText = sStats ? sStats.runs + '(' + sStats.balls + ')' : '0(0)';
+          nonStrikerStatsText = nsStats ? nsStats.runs + '(' + nsStats.balls + ')' : '0(0)';
         }
-        var batsmanText = 'Striker: ' + strikerDisplay;
-        var nonStrikerText = 'Non‑striker: ' + nonStrikerDisplay;
-        ctx.fillText(batsmanText, 20, 95);
-        ctx.fillText(nonStrikerText, w - ctx.measureText(nonStrikerText).width - 20, 95);
+        var strikerDisplay = strikerFull + ' ' + strikerStatsText;
+        var nonStrikerDisplay = nonStrikerFull + ' ' + nonStrikerStatsText;
+        // Position above the pitch (centered)
+        var centreX = w / 2;
+        var centreY = pitchY - 30;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 22px "Inter"';
+        ctx.fillText(strikerDisplay, centreX - ctx.measureText(strikerDisplay).width - 20, centreY);
+        ctx.fillText(nonStrikerDisplay, centreX + 20, centreY);
+        ctx.font = '18px "Inter"';
+        ctx.fillStyle = '#ccc';
+        ctx.fillText('(Striker)', centreX - ctx.measureText(strikerDisplay).width - 20, centreY + 28);
+        ctx.fillText('(Non‑striker)', centreX + 20, centreY + 28);
         
         ctx.font = '14px monospace';
         ctx.fillStyle = '#aaa';
@@ -1714,42 +1721,19 @@
         ctx.fillRect(0, botY, w, 90);
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 20px "Inter"';
-        var strikerShort = currentDelivery ? getLastName(currentDelivery.striker) : '-';
-        ctx.fillText(strikerShort, 25, botY + 32);
+        var bowlerFull = currentDelivery ? currentDelivery.bowler : '-';
+        ctx.fillText(bowlerFull, 25, botY + 32);
         ctx.fillStyle = '#facc15';
         ctx.font = 'bold 28px monospace';
-        var sRuns = '0', sBalls = '0';
-        if (currentDelivery && cumulativeStats.battingStats[currentDelivery.striker]) {
-          var s = cumulativeStats.battingStats[currentDelivery.striker];
-          sRuns = s.runs;
-          sBalls = s.balls;
-        }
-        ctx.fillText(sRuns + '  ' + sBalls, 25, botY + 70);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 18px "Inter"';
-        var bowlerShort = currentDelivery ? getLastName(currentDelivery.bowler) : '-';
         var bowlStat = '';
         if (currentDelivery && cumulativeStats.bowlingStats[currentDelivery.bowler]) {
           var b = cumulativeStats.bowlingStats[currentDelivery.bowler];
           bowlStat = b.overs + ' - ' + b.runs + ' - ' + b.wickets;
         } else bowlStat = '0.0 - 0 - 0';
-        ctx.fillText(bowlerShort, w - 200, botY + 32);
-        ctx.fillStyle = '#facc15';
-        ctx.font = 'bold 20px monospace';
-        ctx.fillText(bowlStat, w - 200, botY + 70);
+        ctx.fillText(bowlStat, 25, botY + 70);
         ctx.fillStyle = '#ccc';
         ctx.font = '16px "Inter"';
-        var nonShort = currentDelivery ? getLastName(currentDelivery.nonStriker) : '-';
-        ctx.fillText(nonShort, 25, botY + 95);
-        var nsRuns = '0', nsBalls = '0';
-        if (currentDelivery && cumulativeStats.battingStats[currentDelivery.nonStriker]) {
-          var ns = cumulativeStats.battingStats[currentDelivery.nonStriker];
-          nsRuns = ns.runs;
-          nsBalls = ns.balls;
-        }
-        ctx.fillStyle = '#facc15';
-        ctx.font = '14px monospace';
-        ctx.fillText(nsRuns + '  ' + nsBalls, 25 + 130, botY + 95);
+        ctx.fillText('Bowler', 25, botY + 95);
         if (lastBallResult.current) {
           ctx.fillStyle = '#facc15';
           ctx.font = 'bold 16px monospace';
